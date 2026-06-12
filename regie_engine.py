@@ -529,6 +529,7 @@ EDITING RULES:
 7. If a clip has high motion (>0.8), consider slow-motion (setpts=PTS*2.0)
 8. VFX rules: Use "vfx": "flash" on the hardest drops. Use "vfx": "pump" on driving kicks. Otherwise "none".
 9. The last clip should create a seamless loop feel if possible
+10. The analysis JSON includes "clip_durations" (real length of each source file in seconds). NEVER set a clip's "end" beyond its source duration.
 
 PRESET DEFINITIONS:
 - "highlight": Best moments, high energy, fast cuts, 60-90s
@@ -780,6 +781,24 @@ def generate_multi_plan(
 # Verification & Self-Healing
 # ---------------------------------------------------------------------------
 
+def _source_duration(video_path: str, _cache: dict = {}) -> float:
+    """Source media duration via ffprobe, cached per path. 0.0 if unknown."""
+    if video_path in _cache:
+        return _cache[video_path]
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", video_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        dur = float(out.stdout.strip()) if out.returncode == 0 else 0.0
+    except Exception:
+        dur = 0.0
+    _cache[video_path] = dur
+    return dur
+
+
 def verify_edit_plan(
     plan: EditPlan,
     analysis_data: dict,
@@ -789,6 +808,8 @@ def verify_edit_plan(
     Verify an edit plan and fix common issues:
     - Clips with zero/negative duration
     - Overly long clips (>15s)
+    - End times beyond the real source duration (AI overshoot) – clamped,
+      then the lost time is recovered by extending clips that have headroom
     - Duration mismatch warnings
     """
     if not plan.clips:
@@ -801,6 +822,23 @@ def verify_edit_plan(
             logger.warning(f"Skipping zero/negative duration clip: {clip.video} [{clip.start}-{clip.end}]")
             continue
 
+        # Clamp against the REAL source duration – the AI only sees analysis
+        # data and routinely plans end times past the end of short clips.
+        src_dur = _source_duration(clip.video)
+        if src_dur > 0:
+            if clip.start >= src_dur:
+                logger.warning(
+                    f"Skipping clip starting past source end: {clip.video} "
+                    f"[start={clip.start:.1f}s, source={src_dur:.1f}s]"
+                )
+                continue
+            if clip.end > src_dur:
+                logger.warning(
+                    f"Clamping clip end to source duration: {clip.video} "
+                    f"[{clip.end:.1f}s → {src_dur:.1f}s]"
+                )
+                clip.end = src_dur
+
         clip_duration = clip.duration
         if clip_duration > 15.0:
             logger.warning(f"Trimming long clip ({clip_duration:.1f}s): {clip.video}")
@@ -810,6 +848,27 @@ def verify_edit_plan(
 
     plan.clips = fixed_clips
     plan.total_duration = sum(c.duration for c in plan.clips)
+
+    # Recover clamped time: extend clips whose SOURCE has headroom past their
+    # planned end. Start times stay untouched (they are beat-aligned cut-ins);
+    # shots just breathe a little longer. Max +2 s per clip, 15 s clip cap.
+    shortfall = target_duration - plan.total_duration
+    if shortfall > 1.0:
+        for clip in plan.clips:
+            if shortfall <= 0:
+                break
+            src_dur = _source_duration(clip.video)
+            if src_dur <= 0:
+                continue
+            headroom = min(src_dur - clip.end, 2.0, 15.0 - clip.duration)
+            if headroom > 0.1:
+                extend = min(headroom, shortfall)
+                clip.end = round(clip.end + extend, 3)
+                shortfall -= extend
+        recovered = sum(c.duration for c in plan.clips) - plan.total_duration
+        if recovered > 0.05:
+            logger.info(f"Recovered {recovered:.1f}s by extending clips with source headroom")
+        plan.total_duration = sum(c.duration for c in plan.clips)
 
     duration_diff = abs(plan.total_duration - target_duration)
     if duration_diff > 5.0:

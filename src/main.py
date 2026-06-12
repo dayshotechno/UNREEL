@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -263,6 +264,18 @@ def phase_3_regie(
             "  DEEPSEEK_API_KEY=...   (DeepSeek V4 Pro)"
         )
         return {"edit_plan": None, "skipped": True, "reason": "no_api_key"}
+
+    # Real source durations → the planner stops scheduling cuts past a clip's
+    # end (the verifier additionally clamps, but informed plans cut better).
+    p2 = analysis_data.get("phase_2") or {}
+    durations = {}
+    for vp_str, entry in p2.items():
+        if isinstance(entry, dict):
+            d = _probe_duration(Path(vp_str))
+            if d > 0:
+                durations[Path(vp_str).name] = round(d, 2)
+    if durations:
+        analysis_data = {**analysis_data, "clip_durations": durations}
 
     # Seamless loop (algorithmic, no AI needed)
     if preset == "seamless_loop":
@@ -960,14 +973,41 @@ def run_pipeline(
         )
         _save_progress()
 
-    # Phase 4: Copywriting
+    # Phase 4: Copywriting – fed with REAL analysis data: vision tags from
+    # phase 2, narrative/hook from the edit plan, true clip durations.
+    # Only the videos actually used in the plan are processed (not all input).
     if phases is None or "copy" in phases:
+        bpm = all_results.get("phase_1", {}).get("percussion", {}).get("bpm", 140)
+        p2 = all_results.get("phase_2") or {}
+        plan = (all_results.get("phase_3") or {}).get("edit_plan") or {}
+        plan_clips = plan.get("clips", [])
+        narrative = plan.get("narrative", "")
+        hook = plan.get("hook_text", "")
+        scene = narrative or "DJ performance"
+        if hook:
+            scene = f"{scene} | Hook: {hook}"
+
+        # Unique source videos in plan order; fall back to all inputs if no plan
+        videos = list(dict.fromkeys(c.get("video", "") for c in plan_clips)) \
+            if plan_clips else [str(vp) for vp in video_paths]
+
         clips_meta = []
-        for vp in video_paths:
+        for v in videos:
+            entry = p2.get(v) if isinstance(p2, dict) else None
+            tag_names = [t.get("tag", "") for t in (entry or {}).get("vision_tags_filtered", [])]
+            top_tags = [t for t, _ in Counter(tag_names).most_common(3) if t] or ["techno"]
+            plan_dur = sum(
+                c.get("duration", c.get("end", 0) - c.get("start", 0))
+                for c in plan_clips if c.get("video") == v
+            )
+            peaks = [c.get("reason", "") for c in plan_clips
+                     if c.get("video") == v and "drop" in c.get("reason", "").lower()]
             clips_meta.append({
-                "bpm": all_results.get("phase_1", {}).get("percussion", {}).get("bpm", 140),
-                "tags": ["techno"],
-                "duration": 30,
+                "bpm": bpm,
+                "tags": top_tags,
+                "duration": round(plan_dur) or 30,
+                "scene": scene,
+                "peak": peaks[0] if peaks else "bass drop",
             })
         all_results["phase_4"] = phase_4_copywriting(clips_meta, style=style)
         _save_progress()

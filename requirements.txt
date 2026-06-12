@@ -10,6 +10,7 @@ numpy>=1.24.0
 opencv-python-headless>=4.8.0
 moviepy>=1.0.3
 ultralytics>=8.0.0
+scenedetect>=0.6.0
 
 # --- Local AI Models (via Ollama) ---
 ollama>=0.4.0

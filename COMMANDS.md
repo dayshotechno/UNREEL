@@ -57,7 +57,7 @@ den ersten verfügbaren in der Reihenfolge **deepseek → claude → gemini**:
 ```ini
 REGIE_PROVIDER=auto
 ANTHROPIC_API_KEY=...          # Claude  (Modell: claude-fable-5)
-GEMINI_API_KEY=...             # Gemini  (Modell: gemini-3.1-pro)
+GEMINI_API_KEY=...             # Gemini  (Modell: gemini-2.5-flash, Free-Tier-tauglich)
 DEEPSEEK_API_KEY=...           # DeepSeek (Modell: deepseek-v4-pro)  ← Primär
 GEMMA_MODEL=gemma4:e2b         # Vision-Tagging (lokal)
 COPYWRITER_MODEL=llama3.2:3b   # Captions (lokal) – exakt der installierte Tag!
