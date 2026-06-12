@@ -12,6 +12,61 @@ def get_yolo_model():
         _model = YOLO("yolo11n.pt")
     return _model
 
+def sample_x_center(video_path, start_time=0.0, end_time=None, samples=10, imgsz=640):
+    """
+    Schneller JIT-Pfad für das Auto-Framing: Da der Export ohnehin nur den
+    DURCHSCHNITT der x-Positionen nutzt (statischer Crop), reichen wenige
+    direkt angesprungene Frames. Im Gegensatz zu analyze_tracking() wird
+    nicht jeder Frame dekodiert (bei 120-fps-Material hunderte Reads),
+    sondern pro Sample gezielt geseekt.
+
+    Returns:
+        Durchschnittliche normalisierte x-Position der größten Person
+        (0.0–1.0) oder None, wenn keine Person gefunden wurde.
+    """
+    try:
+        model = get_yolo_model()
+    except Exception as e:
+        print(f"YOLO konnte nicht geladen werden: {e}")
+        return None
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+
+    if end_time is None:
+        video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        total = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        end_time = (total / video_fps) if total > 0 else start_time + 1.0
+
+    span = max(0.0, end_time - start_time)
+    # Samples gleichmäßig im Fenster verteilen (Mittelpunkte der Teilstücke)
+    times = [start_time + span * (i + 0.5) / samples for i in range(samples)]
+
+    positions = []
+    for t in times:
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        results = model.predict(frame, classes=[0], verbose=False, imgsz=imgsz)
+        best, max_area = None, 0
+        if len(results) > 0:
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                area = (x2 - x1) * (y2 - y1)
+                if area > max_area:
+                    max_area = area
+                    best = float(((x1 + x2) / 2.0) / frame.shape[1])
+        if best is not None:
+            positions.append(best)
+
+    cap.release()
+    if not positions:
+        return None
+    return sum(positions) / len(positions)
+
+
 def analyze_tracking(video_path, fps=1.0, start_time=0.0, end_time=None, progress_callback=None):
     """
     Führt YOLO-basiertes Tracking von Personen (Klasse 0) im Video durch.
