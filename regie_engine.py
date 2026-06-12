@@ -70,6 +70,7 @@ class EditClip:
     reason: str
     crop: str = "9:16"
     lut: str = "underground_dark"
+    vfx: str = "none"
     slow_mo: bool = False
     slow_mo_factor: float = 1.0
     phase: str = ""  # Story phase for pov_story preset: "before" | "during" | "after"
@@ -84,6 +85,7 @@ class EditClip:
             "reason": self.reason,
             "crop": self.crop,
             "lut": self.lut,
+            "vfx": self.vfx,
             "slow_mo": self.slow_mo,
             "slow_mo_factor": self.slow_mo_factor,
             "phase": self.phase,
@@ -143,6 +145,12 @@ class EditPlan:
 
             if clip.slow_mo and clip.slow_mo_factor > 1.0:
                 vf_parts.insert(0, f"setpts=PTS*{clip.slow_mo_factor}")
+
+            # Beat-reactive VFX (applied at start of clip)
+            if clip.vfx == "flash":
+                vf_parts.append("eq=brightness=1.5:enable='between(t,0,0.2)'")
+            elif clip.vfx == "pump":
+                vf_parts.append("zoompan=z='min(max(zoom,pzoom)+0.03,1.05)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:enable='between(t,0,0.3)'")
 
             vf = ",".join(vf_parts) if vf_parts else None
 
@@ -504,7 +512,8 @@ EDITING RULES:
 5. Use hard cuts on kicks/snares for energy, crossfades for transitions
 6. Keep individual clips between 2-8 seconds (reels need fast pacing)
 7. If a clip has high motion (>0.8), consider slow-motion (setpts=PTS*2.0)
-8. The last clip should create a seamless loop feel if possible
+8. VFX rules: Use "vfx": "flash" on the hardest drops. Use "vfx": "pump" on driving kicks. Otherwise "none".
+9. The last clip should create a seamless loop feel if possible
 
 PRESET DEFINITIONS:
 - "highlight": Best moments, high energy, fast cuts, 60-90s
@@ -524,6 +533,7 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown fences, 
       "reason": "Drop starts here, crowd erupts",
       "crop": "9:16",
       "lut": "underground_dark",
+      "vfx": "flash",
       "slow_mo": false,
       "slow_mo_factor": 1.0,
       "phase": ""
@@ -577,6 +587,7 @@ def _parse_edit_plan(raw: str, provider_name: str = "", model_id: str = "") -> E
             reason=c.get("reason", ""),
             crop=c.get("crop", "9:16"),
             lut=c.get("lut", "underground_dark"),
+            vfx=c.get("vfx", "none"),
             slow_mo=c.get("slow_mo", False),
             slow_mo_factor=c.get("slow_mo_factor", 1.0),
             phase=c.get("phase", ""),

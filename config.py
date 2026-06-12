@@ -29,8 +29,8 @@ LUT_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Source folder ingestion scans (= the pipeline input dir by default).
 VIDEO_SOURCE_DIR = INPUT_DIR
-# Video extensions ingestion/the pipeline accept (matched case-insensitively).
-SUPPORTED_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]
+# Video and Audio extensions ingestion/the pipeline accept (matched case-insensitively).
+SUPPORTED_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mp3", ".wav", ".flac", ".aiff", ".aif"]
 
 # ---------------------------------------------------------------------------
 # Audio Analysis

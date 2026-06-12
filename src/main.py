@@ -267,8 +267,8 @@ def phase_4_copywriting(clips_metadata: list[dict], style: str = "techno") -> di
     }
 
 
-def phase_5_assembly(edit_plan: dict | None) -> None:
-    """Phase 5: FFmpeg Assembly – Export with 3D-LUT and effects."""
+def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> None:
+    """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio."""
     logger.info("=" * 60)
     logger.info("PHASE 5: FFmpeg Assembly & Color Grading")
     logger.info("=" * 60)
@@ -303,6 +303,7 @@ def phase_5_assembly(edit_plan: dict | None) -> None:
         start = clip.get("start", 0)
         end = clip.get("end", 0)
         lut = clip.get("lut", DEFAULT_LUT)
+        vfx = clip.get("vfx", "none")
         slow_mo = clip.get("slow_mo", False)
         slow_mo_factor = clip.get("slow_mo_factor", 1.0)
         crop = clip.get("crop", "9:16")
@@ -311,12 +312,28 @@ def phase_5_assembly(edit_plan: dict | None) -> None:
             logger.warning(f"  Source not found: {video}")
             continue
 
+        # Master Audio Sync Logic
+        master_audio = None
+        offset = 0.0
+        if sync_data:
+            ref_clip = sync_data.get("reference_clip", "")
+            AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".aif"}
+            if Path(ref_clip).suffix.lower() in AUDIO_EXTENSIONS:
+                master_audio = ref_clip
+                offset = sync_data.get("offsets", {}).get(video, 0.0)
+
         # Build FFmpeg filter chain
         vf_parts = []
 
         # Slow motion (applied first in chain)
         if slow_mo and slow_mo_factor > 1.0:
             vf_parts.append(f"setpts=PTS*{slow_mo_factor}")
+
+        # Beat-reactive VFX (applied at start of clip)
+        if vfx == "flash":
+            vf_parts.append("eq=brightness=1.5:enable='between(t,0,0.2)'")
+        elif vfx == "pump":
+            vf_parts.append("zoompan=z='min(max(zoom,pzoom)+0.03,1.05)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:enable='between(t,0,0.3)'")
 
         # Crop for 9:16
         if crop == "9:16":
@@ -341,17 +358,34 @@ def phase_5_assembly(edit_plan: dict | None) -> None:
         output_path = OUTPUT_DIR / output_name
 
         # Build FFmpeg command
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", f"{start:.3f}",
-            "-to", f"{end:.3f}",
-            "-i", str(video),
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
+        if master_audio and Path(master_audio).exists():
+            # Extract video from video clip, audio from master audio (synchronized)
+            master_start = max(0.0, start + offset)
+            master_end = max(0.0, end + offset)
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(video),
+                "-ss", f"{master_start:.3f}", "-to", f"{master_end:.3f}", "-i", str(master_audio),
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-shortest",
+                "-movflags", "+faststart",
+                str(output_path),
+            ]
+        else:
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", f"{start:.3f}",
+                "-to", f"{end:.3f}",
+                "-i", str(video),
+                "-vf", vf,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(output_path),
+            ]
 
         logger.info(f"  [{i + 1:02d}] {Path(video).name} → {output_name}")
         try:
@@ -519,7 +553,8 @@ def run_pipeline(
     # Phase 5: Assembly
     if phases is None or "export" in phases:
         edit_plan = all_results.get("phase_3", {}).get("edit_plan")
-        phase_5_assembly(edit_plan)
+        sync_data = all_results.get("phase_1", {}).get("sync")
+        phase_5_assembly(edit_plan, sync_data=sync_data)
 
     # Final save
     _save_progress()

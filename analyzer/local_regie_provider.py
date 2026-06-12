@@ -53,6 +53,7 @@ EDIT_PLAN_SCHEMA = {
                     "reason": {"type": "string"},
                     "crop": {"type": "string"},
                     "lut": {"type": "string"},
+                    "vfx": {"type": "string"},
                     "slow_mo": {"type": "boolean"},
                     "slow_mo_factor": {"type": "number"},
                     "phase": {"type": "string"},
@@ -183,6 +184,7 @@ class LocalMLXProvider:
             reason: str = ""
             crop: str = "9:16"
             lut: str = "underground_dark"
+            vfx: str = "none"
             slow_mo: bool = False
             slow_mo_factor: float = 1.0
             phase: str = ""
