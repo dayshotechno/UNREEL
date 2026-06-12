@@ -55,6 +55,23 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 GEMMA_MODEL = os.environ.get("GEMMA_MODEL", "gemma4:e2b")
 COPYWRITER_MODEL = os.environ.get("COPYWRITER_MODEL", "llama3.2")
 
+# --- Lokale KI: Backend-Auswahl (ollama | mlx) ---
+VISION_BACKEND = os.environ.get("VISION_BACKEND", "ollama")
+TEXT_BACKEND   = os.environ.get("TEXT_BACKEND", "ollama")
+
+# --- MLX-Modelle (Apple Silicon) ---
+MLX_VISION_MODEL = os.environ.get(
+    "MLX_VISION_MODEL", "mlx-community/Qwen2.5-VL-7B-Instruct-4bit")
+MLX_TEXT_MODEL   = os.environ.get(
+    "MLX_TEXT_MODEL",   "mlx-community/Qwen2.5-7B-Instruct-4bit")
+# Optional: Frames pro VLM-Aufruf (nur für multi-image-fähige Modelle > 1 setzen)
+MLX_VISION_FRAMES_PER_CALL = int(
+    os.environ.get("MLX_VISION_FRAMES_PER_CALL", "1") or 1)
+
+# --- Lokaler Regie-Provider (Opt-in; wird in Phase E benutzt) ---
+LOCAL_REGIE_ENGINE = os.environ.get("LOCAL_REGIE_ENGINE", "ollama")  # ollama | mlx
+LOCAL_REGIE_MODEL  = os.environ.get("LOCAL_REGIE_MODEL", "qwen3.5:9b")
+
 # ---------------------------------------------------------------------------
 # Regie Engine – Multi-Provider AI Configuration
 # ---------------------------------------------------------------------------
