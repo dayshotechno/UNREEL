@@ -186,7 +186,7 @@ class RegieProvider(Protocol):
         system_prompt: str,
         user_data: str,
         temperature: float = 0.4,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> str: ...
 
 
