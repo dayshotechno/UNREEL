@@ -1,0 +1,182 @@
+# CLAUDE.md – UNREEL V3 Project Context
+
+## Project Overview
+
+UNREEL V3 is a Python CLI tool that transforms raw, low-quality DJ gig footage (16:9) into polished, synced Instagram Reels (9:16). The pipeline analyzes audio, tags video content with local AI, generates AI-directed edit plans via cloud APIs, and exports with cinematic 3D-LUT color grading. **Everything runs on CPU – no GPU required.**
+
+## Architecture
+
+```
+unreel_v3/
+├── analyzer/                    # Core analysis modules
+│   ├── config.py                # Central config (loads from .env)
+│   ├── audio_sync.py            # Cross-correlation multi-clip sync (scipy)
+│   ├── kick_snare_detector.py   # Percussion detection (librosa)
+│   ├── vision_engine.py         # Scene tagging via Gemma 4 E2B (Ollama)
+│   ├── regie_engine.py          # Multi-provider AI director (Claude/Gemini/DeepSeek)
+│   ├── copywriter.py            # Filenames + Instagram captions (Llama 3.2, Ollama)
+│   └── lut_generator.py         # Programmatic .cube LUT generation (numpy)
+├── luts/                        # Generated 3D-LUT files (.cube)
+│   ├── underground_dark.cube    # Default: crushed blacks, cyan tint, desaturated
+│   ├── vhs_analog.cube          # Milky shadows, color bleed, faded
+│   └── neon_nights.cube         # High saturation, magenta/blue highlights
+├── src/
+│   └── main.py                  # CLI entry point & pipeline orchestrator
+├── requirements.txt
+├── .env.example
+├── input/                       # User places raw footage here
+└── output/                      # All exports land here
+```
+
+## Pipeline Phases
+
+| Phase | Module | What it does |
+|-------|--------|--------------|
+| 0 | `lut_generator` | Generates `.cube` LUT files if missing |
+| 1 | `audio_sync` + `kick_snare_detector` | Syncs multiple clips via FFT cross-correlation, detects kicks/snares |
+| 2 | `vision_engine` | Samples frames → Gemma 4 E2B tags scenes (CROWD_ENERGY, DJ_SETUP, etc.) |
+| 3 | `regie_engine` | Sends analysis JSON to cloud AI → gets millisecond-accurate edit plan |
+| 4 | `copywriter` | Generates filenames + Instagram captions via local Llama 3.2 |
+| 5 | `main.py` (assembly) | FFmpeg exports with 3D-LUT, 9:16 crop, slow-mo |
+
+## AI Provider Setup (Regie Engine)
+
+Three cloud providers for the regie phase, with automatic fallback:
+
+| Provider | Model | SDK | Env Key |
+|----------|-------|-----|---------|
+| Anthropic | Claude Fable 5 | `anthropic` | `ANTHROPIC_API_KEY` |
+| Google | Gemini 3.1 Pro | `google-generativeai` | `GEMINI_API_KEY` |
+| DeepSeek | V4 Pro | `openai` (compatible endpoint) | `DEEPSEEK_API_KEY` |
+
+`REGIE_PROVIDER=auto` tries Claude → Gemini → DeepSeek. Set at least one key.
+
+Local models via Ollama:
+- **Gemma 4 E2B** (`gemma4:e2b`) – scene tagging
+- **Llama 3.2** (`llama3.2`) – copywriting
+
+## Key Commands
+
+```bash
+# Full pipeline
+python -m src.main --input ./input --preset highlight --duration 60
+
+# Specific provider
+python -m src.main --provider gemini --phase regie
+
+# All providers (A/B comparison)
+python -m src.main --multi --phase regie
+
+# Individual phases
+python -m src.main --phase sync       # Audio sync only
+python -m src.main --phase vision     # Vision tagging only
+python -m src.main --luts             # Generate LUTs only
+
+# Module-level CLI
+python -m analyzer.audio_sync input/*.mov
+python -m analyzer.kick_snare_detector input/clip.mov
+python -m analyzer.vision_engine input/clip.mov
+python -m analyzer.copywriter demo
+python -m analyzer.regie_engine output/pipeline_results.json --provider deepseek
+python -m analyzer.lut_generator
+```
+
+## Development Rules
+
+### Critical Constraints
+- **CPU-only.** NEVER assume CUDA, GPU, or `torch.cuda`. All ML inference runs on CPU via Ollama or cloud APIs.
+- **No hardcoded secrets.** All API keys load from `.env` via `python-dotenv`. Use `os.environ.get()`.
+- **Relative paths only.** Use `pathlib.Path` relative to `BASE_DIR`. No absolute paths.
+- **Graceful degradation.** If Ollama is not running, vision/copywriting phases return empty results and the pipeline continues. If no API key is set, the regie phase skips with a clear warning.
+
+### Python Conventions
+- **snake_case** for functions and variables.
+- **kebab-case** for file names (Python modules use snake_case per convention).
+- All modules have a `if __name__ == "__main__"` CLI block for standalone testing.
+- All modules return typed dataclasses with `.to_dict()` and optional `.save(path)` methods.
+- Use `logging` module (never `print()` in library code). CLI entry points may print.
+- Handle FFmpeg tasks with `subprocess.run()`, not async (simplicity over complexity).
+
+### Audio & Video
+- Audio sync uses `scipy.signal.correlate(mode='full', method='fft')` for CPU performance.
+- Kick detection: librosa Mel-spectrogram filtered to <200Hz + onset detection.
+- Snare detection: same approach, 2kHz–8kHz band.
+- Video cropping to 9:16: `crop=ih*9/16:ih,scale=1080:1920` in FFmpeg.
+- Color grading via `lut3d=` FFmpeg filter with generated `.cube` files.
+- Slow-motion for high-motion clips: `setpts=PTS*2.0` (50% speed).
+- Seamless loops: split clip in half, swap halves, crossfade at junction.
+
+### Data Flow
+- All analysis results are plain Python `dict` / `dataclass` → serialized to JSON.
+- The pipeline accumulates results in `all_results` dict and saves to `output/pipeline_results.json`.
+- The regie engine receives the full analysis dict, trims large arrays, and sends to the AI as JSON.
+- AI responses are parsed as JSON (markdown-fence-stripped), validated, and auto-fixed.
+
+### Edit Plan Schema
+```json
+{
+  "clips": [
+    {
+      "video": "filename.mov",
+      "start": 12.345,
+      "end": 18.789,
+      "transition": "hard_cut_on_beat",
+      "reason": "Drop starts here",
+      "crop": "9:16",
+      "lut": "underground_dark",
+      "slow_mo": false,
+      "slow_mo_factor": 1.0
+    }
+  ],
+  "narrative": "...",
+  "total_duration": 60.0,
+  "provider_used": "claude",
+  "model_used": "claude-fable-5"
+}
+```
+
+### Provider Architecture
+- Each provider implements the `RegieProvider` protocol: `name`, `model_id`, `is_available()`, `call()`.
+- `resolve_provider("auto")` iterates fallback order and returns the first with an API key.
+- `generate_multi_plan()` calls all available providers and returns a dict of plans.
+- Gemini uses `response_mime_type="application/json"` to force structured output.
+- DeepSeek uses `response_format={"type": "json_object"}` via OpenAI-compatible API.
+- Claude uses standard Anthropic Messages API.
+
+### Vision Tag Taxonomy
+`CROWD_ENERGY`, `DJ_SETUP`, `LIGHT_SHOW`, `TRANSITION`, `BREAKDOWN`, `BACKSTAGE`, `ARRIVAL`, `PACKDOWN`, `UNUSABLE`
+
+`ARRIVAL` (load-in / getting ready before the set) and `PACKDOWN` (packing up / empty floor after the set) are story tags that drive the `pov_story` preset's `before`/`after` phases. They carry no highlight bonus (`0.0`, like `BACKSTAGE`), so they don't affect energy-based presets.
+
+Tag bonus scores for highlight engine: `CROWD_ENERGY=+0.8`, `LIGHT_SHOW=+0.5`, `DJ_SETUP=+0.3`, `BREAKDOWN=+0.2`, `TRANSITION=+0.1`, `BACKSTAGE/ARRIVAL/PACKDOWN=0.0`, `UNUSABLE=-1.0`
+
+### Presets
+- `highlight` – Best moments, fast cuts, 60-90s
+- `drop_focus` – Build-up → drop → aftermath
+- `seamless_loop` – 15-30s, algorithmic swap-loop
+- `moody` – Atmospheric, slower cuts, BREAKDOWN + LIGHT_SHOW
+- `pov_story` – POV / "A Day in the Life": story-driven vlog reel ordered `before → during → after` a gig (uses BACKSTAGE clips), with an **anti-advice hook** (contrarian text line) in the first ~3s. Adds plan field `hook_text` and per-clip `phase` (`before`/`during`/`after`). Hook is metadata only — not burned into the video.
+
+## Existing Analysis Modules
+
+The `analyzer/` folder contains specific analysis and utility modules:
+- `audio_analyzer.py` (BPM, beats, drops, buildups)
+- `video_analyzer.py` (motion, scenes, light)
+- `highlight_engine.py` (scoring)
+- `tracking_engine.py` (YOLO auto-framing)
+- `clip_exporter.py` (FFmpeg export with eq-filter)
+
+## Dependencies
+
+```
+librosa>=0.10.0        # Audio analysis
+scipy>=1.11.0          # Cross-correlation
+numpy>=1.24.0          # LUT generation math
+opencv-python-headless  # Frame extraction
+moviepy>=1.0.3         # Video processing
+ollama>=0.4.0          # Local AI (Gemma, Llama)
+anthropic>=0.30.0      # Claude API
+google-generativeai>=0.8.0  # Gemini API
+openai>=1.30.0         # DeepSeek API (OpenAI-compatible)
+python-dotenv>=1.0.0   # .env loading
+```
