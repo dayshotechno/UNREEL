@@ -31,7 +31,7 @@ from config import (
 from lut_generator import generate_all_luts, get_lut_path
 from audio_sync import sync_all_clips
 from kick_snare_detector import detect_kicks_snares, get_beat_grid
-from vision_engine import tag_video_frames, filter_unusable
+from analyzer.vision_engine import tag_video_frames, filter_unusable
 from copywriter import generate_caption, generate_filename, batch_process, save_captions
 from regie_engine import (
     generate_edit_plan,
