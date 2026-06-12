@@ -2,7 +2,8 @@
 
 **Automatisierte DJ-Video-Pipeline.** Verwandelt rohes Gig-Footage in ein fertiges, hochkant
 geschnittenes Instagram-Reel (1080×1920) – mit Audio-Analyse, lokalem KI-Szenen-Tagging,
-KI-gesteuertem Schnittplan und 3D-LUT-Color-Grading. **Läuft komplett auf CPU.**
+KI-gesteuertem Schnittplan und 3D-LUT-Color-Grading. 
+Unterstützt hybride Plattform-Modi: **Windows/Linux** (lokal auf CPU via Ollama) und **macOS** (GPU-beschleunigt via MLX).
 
 ```
  0 Setup  →  1 Sync  →  2 Vision  →  3 Regie  →  4 Copy  →  5 Export
@@ -54,8 +55,8 @@ python main.py -i ./input -p pov_story -d 45
 ## AI-Provider (Regie-Phase)
 
 `REGIE_PROVIDER=auto` wählt automatisch in der Reihenfolge **DeepSeek → Claude → Gemini**
-(erster mit Key + installiertem SDK). Lokale Modelle laufen über Ollama (Gemma = Vision,
-Llama = Captions).
+(erster mit Key + installiertem SDK). Lokale Modelle laufen über das System-Backend 
+(Ollama auf Windows/Linux, natives MLX auf Apple Silicon).
 
 ## Wichtigste Ausgaben (`output/`)
 
@@ -75,11 +76,11 @@ UNREEL/
 ├── config.py            # Zentrale Konfiguration (lädt aus .env)
 ├── audio_sync.py        # Audio-Cross-Correlation-Sync
 ├── kick_snare_detector.py
-├── vision_engine.py     # Szenen-Tagging via Gemma (Ollama)
 ├── regie_engine.py      # Multi-Provider KI-Regie (Schnittplan)
-├── copywriter.py        # Dateinamen + Captions via Llama
 ├── lut_generator.py     # .cube-LUTs
 ├── analyzer/            # Spezifische Analyse-Module
+│   ├── vision_engine.py # Szenen-Tagging (Ollama / MLX)
+│   └── copywriter.py    # Dateinamen + Captions (Ollama / MLX)
 ├── luts/                # Generierte Farb-LUTs
 ├── tests/               # Offline-Unit-Tests
 ├── input/               # Rohes Footage hier ablegen
