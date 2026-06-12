@@ -60,58 +60,80 @@ def phase_5_assembly(edit_plan: dict | None) -> None:
         logger.info("Tip: Set an AI provider API key to generate edit plans")
         return
 
-    # Build FFmpeg filter chain
-    vf_parts = []
+    clips = edit_plan.get("clips", [])
+    if not clips:
+        logger.warning("Empty edit plan – nothing to assemble")
+        return
 
-    # 9:16 crop
-    vf_parts.append("crop=ih*9/16:ih,scale=1080:1920")
+    logger.info(f"Assembling {len(clips)} clips...")
 
-    # 3D-LUT color grading – relativer Pfad mit Forward-Slashes für FFmpeg
-    lut = edit_plan.get("lut", DEFAULT_LUT)
-    lut_path = LUT_DIR / f"{lut}.cube"
-    if lut_path.exists():
-        rel_path = os.path.relpath(lut_path).replace("\\", "/")
-        vf_parts.append(f"lut3d={rel_path}")
-    else:
-        logger.warning(f"  LUT not found: {lut_path}, using default")
-        default_path = LUT_DIR / f"{DEFAULT_LUT}.cube"
-        if default_path.exists():
-            rel_path = os.path.relpath(default_path).replace("\\", "/")
+    for i, clip in enumerate(clips):
+        video = clip.get("video", "")
+        start = clip.get("start", 0)
+        end = clip.get("end", 0)
+        lut = clip.get("lut", DEFAULT_LUT)
+        slow_mo = clip.get("slow_mo", False)
+        slow_mo_factor = clip.get("slow_mo_factor", 1.0)
+        crop = clip.get("crop", "9:16")
+
+        if not os.path.isfile(video):
+            logger.warning(f"  Source not found: {video}")
+            continue
+
+        # Build FFmpeg filter chain
+        vf_parts = []
+
+        # Slow motion (applied first in chain)
+        if slow_mo and slow_mo_factor > 1.0:
+            vf_parts.append(f"setpts=PTS*{slow_mo_factor}")
+
+        # Crop for 9:16
+        if crop == "9:16":
+            vf_parts.append("crop=ih*9/16:ih")
+            vf_parts.append("scale=1080:1920")
+
+        # 3D-LUT color grading – relativer Pfad mit Forward-Slashes für FFmpeg
+        lut_path = LUT_DIR / f"{lut}.cube"
+        if lut_path.exists():
+            rel_path = os.path.relpath(lut_path).replace("\\", "/")
             vf_parts.append(f"lut3d={rel_path}")
+        else:
+            logger.warning(f"  LUT not found: {lut_path}, using default")
+            default_path = LUT_DIR / f"{DEFAULT_LUT}.cube"
+            if default_path.exists():
+                rel_path = os.path.relpath(default_path).replace("\\", "/")
+                vf_parts.append(f"lut3d={rel_path}")
 
-    # Slow‑motion for high‑motion clips
-    slow_mo = edit_plan.get("slow_mo", False)
-    if slow_mo:
-        factor = edit_plan.get("slow_mo_factor", 2.0)
-        vf_parts.append(f"setpts=PTS*{factor}")
+        vf = ",".join(vf_parts)
 
-    filter_complex = ",".join(vf_parts)
+        output_name = f"snippet_{i + 1:03d}_{Path(video).stem}.mp4"
+        output_path = OUTPUT_DIR / output_name
 
-    # Input / output paths
-    input_path = edit_plan.get("input", "")
-    output_filename = edit_plan.get("output", "final_reel.mp4")
-    output_path = OUTPUT_DIR / output_filename
+        # Build FFmpeg command
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start:.3f}",
+            "-to", f"{end:.3f}",
+            "-i", str(video),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
 
-    # Build command
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i", input_path,
-        "-vf", filter_complex,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        str(output_path),
-    ]
-
-    logger.info(f"Running FFmpeg: {' '.join(cmd)}")
-    try:
-        subprocess.run(cmd, check=True)
-        logger.info(f"Export finished: {output_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg failed: {e}")
+        logger.info(f"  [{i + 1:02d}] {Path(video).name} → {output_name}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size_kb = output_path.stat().st_size / 1024
+                logger.info(f"       ✓ Exported ({size_kb:.0f} KB)")
+            else:
+                logger.error(f"       ✗ FFmpeg error: {result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"       ✗ Timeout exporting clip")
+        except Exception as e:
+            logger.error(f"       ✗ Error: {e}")
 
 
 # ---------------------------------------------------------------------------
