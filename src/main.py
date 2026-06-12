@@ -335,9 +335,23 @@ def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> N
         elif vfx == "pump":
             vf_parts.append("zoompan=z='min(max(zoom,pzoom)+0.03,1.05)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:enable='between(t,0,0.3)'")
 
-        # Crop for 9:16
+        # Crop for 9:16 (mit JIT Auto-Framing)
         if crop == "9:16":
-            vf_parts.append("crop=ih*9/16:ih")
+            crop_x_expr = "(iw-ih*9/16)/2"  # Standard Center-Crop
+            try:
+                from analyzer.tracking_engine import analyze_tracking
+                logger.info(f"  [{i + 1:02d}] JIT Auto-Framing: Tracking {Path(video).name} ({start:.1f}s - {end:.1f}s)...")
+                track_data = analyze_tracking(video, fps=2.0, start_time=start, end_time=end)
+                if track_data:
+                    avg_x = sum(d["x_center"] for d in track_data) / len(track_data)
+                    crop_x_expr = f"max(0,min(iw-ih*9/16,iw*{avg_x:.3f}-(ih*9/16)/2))"
+                    logger.info(f"       → Subject tracked at x_center={avg_x:.2f}. Dynamic crop applied.")
+                else:
+                    logger.info(f"       → No subject found. Using center crop.")
+            except Exception as e:
+                logger.warning(f"       → JIT Auto-Framing failed: {e}. Using center crop.")
+                
+            vf_parts.append(f"crop=ih*9/16:ih:{crop_x_expr}:0")
             vf_parts.append("scale=1080:1920")
 
         # 3D-LUT color grading – relativer Pfad mit Forward-Slashes für FFmpeg
