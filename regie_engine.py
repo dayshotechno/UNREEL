@@ -27,6 +27,8 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
+from analyzer.local_regie_provider import LocalMLXProvider
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -386,6 +388,7 @@ def get_provider(provider_name: str = "") -> RegieProvider:
         "claude": ClaudeProvider,
         "gemini": GeminiProvider,
         "deepseek": DeepSeekProvider,
+        "local": LocalMLXProvider,
     }
 
     if name not in providers:
@@ -428,14 +431,15 @@ def resolve_provider(provider_name: str = "") -> RegieProvider:
         "No AI provider available. Set at least one API key in .env:\n"
         "  ANTHROPIC_API_KEY=...  (Claude Fable 5)\n"
         "  GEMINI_API_KEY=...     (Gemini 3.1 Pro)\n"
-        "  DEEPSEEK_API_KEY=...   (DeepSeek V4 Pro)"
+        "  DEEPSEEK_API_KEY=...   (DeepSeek V4 Pro)\n"
+        "Or set REGIE_PROVIDER=local to use the local model."
     )
 
 
 def list_available_providers() -> list[dict]:
     """List all providers and their availability status."""
     result = []
-    for name, cls in [("claude", ClaudeProvider), ("gemini", GeminiProvider), ("deepseek", DeepSeekProvider)]:
+    for name, cls in [("claude", ClaudeProvider), ("gemini", GeminiProvider), ("deepseek", DeepSeekProvider), ("local", LocalMLXProvider)]:
         provider = cls()
         result.append({
             "name": name,
