@@ -86,7 +86,7 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
 
 # --- Google Gemini 3.1 Pro ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview")
 
 # --- DeepSeek V4 Pro ---
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")

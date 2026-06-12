@@ -1,0 +1,24 @@
+.aider*
+.env
+
+# Footage & Render-Ausgaben (groß, persönlich)
+input/
+input_pov/
+output/
+
+# Generierte Artefakte
+luts/
+*.pt
+__pycache__/
+.pytest_cache/
+test2.jpg
+test_thumb.jpg
+
+# macOS AppleDouble-Metadaten
+._*
+.DS_Store
+
+# Lokale Tool-Konfiguration
+.claude/
+.agents/
+skills-lock.json

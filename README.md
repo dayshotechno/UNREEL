@@ -39,6 +39,9 @@ python main.py -i ./input -p pov_story -d 45
 
 > Detaillierte Schritt-für-Schritt-Anleitung, alle Optionen und Troubleshooting:
 > **→ [COMMANDS.md](COMMANDS.md)**
+>
+> Vollständige Referenz aller Skripte und Funktionen mit Use-Cases:
+> **→ [MODULES.md](MODULES.md)**
 
 ---
 

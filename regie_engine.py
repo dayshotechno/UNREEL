@@ -245,15 +245,30 @@ class ClaudeProvider:
 
         logger.info(f"  → Calling {self._model} (Anthropic)...")
 
-        response = client.messages.create(
+        params = dict(
             model=self._model,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_data}],
             temperature=temperature,
         )
+        try:
+            response = client.messages.create(**params)
+        except anthropic.BadRequestError as exc:
+            # Newer models (e.g. Fable 5) reject `temperature`; retry without it.
+            if "temperature" in str(exc).lower():
+                params.pop("temperature", None)
+                response = client.messages.create(**params)
+            else:
+                raise
 
-        return response.content[0].text
+        # Fable 5 (and any model with extended thinking) returns thinking
+        # blocks before the answer, so pick text blocks only — never content[0].
+        text = "".join(
+            block.text for block in response.content
+            if getattr(block, "type", None) == "text"
+        )
+        return text
 
 
 # ---------------------------------------------------------------------------
@@ -573,9 +588,19 @@ def _parse_edit_plan(raw: str, provider_name: str = "", model_id: str = "") -> E
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse {provider_name} response as JSON: {e}")
-        logger.debug(f"Raw response: {raw[:500]}")
-        raise ValueError(f"Invalid JSON from {provider_name}: {e}")
+        # LLMs occasionally emit slightly malformed JSON (missing/trailing
+        # commas). Try to repair it before giving up.
+        logger.warning(f"{provider_name} JSON invalid ({e}); attempting repair...")
+        try:
+            from json_repair import repair_json
+            parsed = repair_json(cleaned, return_objects=True)
+            if not isinstance(parsed, dict):
+                raise ValueError("repaired JSON is not an object")
+            logger.info(f"  Repaired malformed JSON from {provider_name}")
+        except Exception as repair_err:
+            logger.error(f"Failed to parse {provider_name} response as JSON: {e}")
+            logger.debug(f"Raw response: {raw[:500]}")
+            raise ValueError(f"Invalid JSON from {provider_name}: {e}") from repair_err
 
     clips = []
     for c in parsed.get("clips", []):

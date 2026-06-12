@@ -267,8 +267,18 @@ def phase_4_copywriting(clips_metadata: list[dict], style: str = "techno") -> di
     }
 
 
-def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> None:
-    """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio."""
+def phase_5_assembly(
+    edit_plan: dict | None,
+    sync_data: dict | None = None,
+    music_path: Path | None = None,
+    vision_data: dict | None = None,
+) -> None:
+    """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio.
+
+    If `music_path` is given, a chosen music track is laid over the finished
+    reel (original audio replaced), with the track's drop aligned to the reel's
+    energy peak (derived from `vision_data`).
+    """
     logger.info("=" * 60)
     logger.info("PHASE 5: FFmpeg Assembly & Color Grading")
     logger.info("=" * 60)
@@ -329,11 +339,10 @@ def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> N
         if slow_mo and slow_mo_factor > 1.0:
             vf_parts.append(f"setpts=PTS*{slow_mo_factor}")
 
-        # Beat-reactive VFX (applied at start of clip)
+        # Beat-reactive VFX: flash (brightness pop on the cut)
+        # eq brightness range is [-1, 1]; 1.5 blew the frame out to pure white.
         if vfx == "flash":
-            vf_parts.append("eq=brightness=1.5:enable='between(t,0,0.2)'")
-        elif vfx == "pump":
-            vf_parts.append("zoompan=z='min(max(zoom,pzoom)+0.03,1.05)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:enable='between(t,0,0.3)'")
+            vf_parts.append("eq=brightness=0.4:enable='between(t,0,0.2)'")
 
         # Crop for 9:16 (mit JIT Auto-Framing)
         if crop == "9:16":
@@ -351,8 +360,23 @@ def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> N
             except Exception as e:
                 logger.warning(f"       → JIT Auto-Framing failed: {e}. Using center crop.")
                 
+            # Escape commas: in an FFmpeg filtergraph a bare comma separates
+            # filters, so min()/max() args would otherwise be torn apart.
+            crop_x_expr = crop_x_expr.replace(",", "\\,")
             vf_parts.append(f"crop=ih*9/16:ih:{crop_x_expr}:0")
             vf_parts.append("scale=1080:1920")
+
+            # Beat-reactive VFX: pump (zoom punch decaying over 0.3 s).
+            # zoompan does not support the `enable` timeline option, so this
+            # uses a per-frame scale + centered crop back to 1080x1920 instead.
+            # Placed after the 9:16 crop so the frame size is known and the
+            # image is not distorted.
+            if vfx == "pump":
+                zoom = "(1+0.05*max(0\\,1-t/0.3))"
+                vf_parts.append(
+                    f"scale=w='trunc(1080*{zoom}/2)*2':h='trunc(1920*{zoom}/2)*2':eval=frame"
+                )
+                vf_parts.append("crop=1080:1920")
 
         # 3D-LUT color grading – relativer Pfad mit Forward-Slashes für FFmpeg
         lut_path = LUT_DIR / f"{lut}.cube"
@@ -409,19 +433,25 @@ def phase_5_assembly(edit_plan: dict | None, sync_data: dict | None = None) -> N
                 logger.info(f"       ✓ Exported ({size_kb:.0f} KB)")
                 exported_snippets.append(output_path)
             else:
-                logger.error(f"       ✗ FFmpeg error: {result.stderr[:200]}")
+                logger.error(f"       ✗ FFmpeg error: {result.stderr.strip()[-400:]}")
         except subprocess.TimeoutExpired:
             logger.error(f"       ✗ Timeout exporting clip")
         except Exception as e:
             logger.error(f"       ✗ Error: {e}")
 
     # Final step: stitch the snippets into ONE reel, in plan order
+    final_reel: Path | None = None
     if len(exported_snippets) >= 2:
-        _concat_snippets(exported_snippets, style=edit_plan.get("style", "reel"))
+        final_reel = _concat_snippets(exported_snippets, style=edit_plan.get("style", "reel"))
     elif len(exported_snippets) == 1:
+        final_reel = exported_snippets[0]
         logger.info("Only one snippet exported – skipping concat (snippet IS the reel)")
     else:
         logger.warning("No snippets exported – nothing to concatenate")
+
+    # Optional: lay a chosen music track over the finished reel
+    if music_path is not None and final_reel is not None:
+        _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data)
 
 
 def _concat_snippets(snippets: list[Path], style: str = "reel") -> Path | None:
@@ -454,7 +484,9 @@ def _concat_snippets(snippets: list[Path], style: str = "reel") -> Path | None:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # Re-encoding 1080x1920 (often 120 fps sources) is slow on CPU;
+        # 10 min was not enough for a full 90 s reel.
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
         if result.returncode == 0:
             size_mb = output_path.stat().st_size / (1024 * 1024)
             logger.info(f"  ✓ Final reel: {output_path} ({size_mb:.1f} MB)")
@@ -465,6 +497,171 @@ def _concat_snippets(snippets: list[Path], style: str = "reel") -> Path | None:
     except Exception as e:
         logger.error(f"  ✗ Error: {e}")
     return None
+
+
+# ---------------------------------------------------------------------------
+# Music overlay (energy-aligned background track)
+# ---------------------------------------------------------------------------
+
+# Tag → energy bonus (mirrors the highlight taxonomy in CLAUDE.md).
+_TAG_ENERGY = {
+    "CROWD_ENERGY": 0.8, "LIGHT_SHOW": 0.5, "DJ_SETUP": 0.3,
+    "BREAKDOWN": 0.2, "TRANSITION": 0.1,
+    "BACKSTAGE": 0.0, "ARRIVAL": 0.0, "PACKDOWN": 0.0, "UNUSABLE": -1.0,
+}
+
+
+def _clip_reel_duration(clip: dict) -> float:
+    """Duration this clip occupies in the final reel (slow-mo stretches it)."""
+    dur = float(clip.get("end", 0)) - float(clip.get("start", 0))
+    if clip.get("slow_mo") and float(clip.get("slow_mo_factor", 1.0)) > 1.0:
+        dur *= float(clip["slow_mo_factor"])
+    return max(0.0, dur)
+
+
+def _score_clip_energy(clip: dict, vision_data: dict | None) -> float:
+    """Energy proxy for a clip from its source's vision tags."""
+    if not vision_data:
+        return 0.0
+    entry = vision_data.get(clip.get("video", "")) or {}
+    tags = entry.get("vision_tags_filtered") or entry.get("vision_tags") or []
+    return sum(_TAG_ENERGY.get(t.get("tag", ""), 0.0) for t in tags)
+
+
+def _reel_peak_time(clips: list[dict], vision_data: dict | None) -> tuple[float, float]:
+    """
+    (peak_time, total_duration) on the FINAL reel timeline.
+
+    Peak = midpoint of the highest-energy clip. Falls back to a clip whose
+    reason/transition mentions a drop/peak, then to 62 % of the reel.
+    """
+    if not clips:
+        return 0.0, 0.0
+
+    starts, durs, scores = [], [], []
+    t = 0.0
+    for c in clips:
+        d = _clip_reel_duration(c)
+        starts.append(t)
+        durs.append(d)
+        scores.append(_score_clip_energy(c, vision_data))
+        t += d
+    total = t
+
+    best = max(range(len(clips)), key=lambda i: scores[i])
+    if scores[best] > 0:
+        return starts[best] + durs[best] / 2, total
+
+    for i, c in enumerate(clips):
+        text = f"{c.get('reason', '')} {c.get('transition', '')}".lower()
+        if "drop" in text or "peak" in text:
+            return starts[i] + durs[i] / 2, total
+
+    return 0.62 * total, total
+
+
+def _find_music_drop(music_path: Path, sr: int = 22050) -> float:
+    """
+    Self-contained drop detection: time of the steepest sustained rise in
+    sub-200 Hz (bass) energy. Uses only librosa + numpy (no V2 config).
+    """
+    import numpy as np
+    import librosa
+
+    y, _ = librosa.load(str(music_path), sr=sr, mono=True)
+    n_fft, hop = 2048, 512
+    spec = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    bass = spec[freqs < 200].mean(axis=0)
+    if bass.size < 4:
+        return 0.0
+
+    win = max(1, int(0.5 * sr / hop))  # ~0.5 s smoothing
+    bass_s = np.convolve(bass, np.ones(win) / win, mode="same")
+    deriv = np.diff(bass_s)
+    times = librosa.frames_to_time(np.arange(len(deriv)), sr=sr, hop_length=hop)
+
+    lo, hi = int(0.05 * len(deriv)), int(0.95 * len(deriv))  # trim edges
+    if hi <= lo:
+        return 0.0
+    idx = lo + int(np.argmax(deriv[lo:hi]))
+    return float(times[idx])
+
+
+def _probe_duration(path: Path) -> float:
+    """Media duration in seconds via ffprobe (0.0 on failure)."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def _apply_music_bed(
+    reel_path: Path, music_path: Path,
+    clips: list[dict], vision_data: dict | None,
+) -> None:
+    """
+    Replace the reel's audio with `music_path`, aligning the track's drop to
+    the reel's energy peak. Adds a 1.5 s fade-out. Edits `reel_path` in place.
+    """
+    if not music_path.exists():
+        logger.warning(f"Music file not found: {music_path} – keeping original audio")
+        return
+
+    reel_dur = _probe_duration(reel_path)
+    if reel_dur <= 0:
+        logger.error("Could not probe reel duration – skipping music overlay")
+        return
+
+    peak_t, _ = _reel_peak_time(clips, vision_data)
+    try:
+        drop_t = _find_music_drop(music_path)
+    except Exception as e:
+        logger.warning(f"Drop detection failed ({e}); starting music at 0:00")
+        drop_t = 0.0
+    music_start = max(0.0, drop_t - peak_t)
+
+    music_dur = _probe_duration(music_path)
+    if music_dur and (music_dur - music_start) < reel_dur:
+        logger.warning(
+            f"Music ({music_dur:.0f}s, from {music_start:.1f}s) is shorter than the "
+            f"reel ({reel_dur:.0f}s) – the tail will be silent/cut."
+        )
+
+    logger.info(
+        f"🎵 Music overlay: drop@{drop_t:.1f}s → reel peak@{peak_t:.1f}s  "
+        f"(track starts at {music_start:.1f}s)"
+    )
+
+    fade_start = max(0.0, reel_dur - 1.5)
+    tmp_path = reel_path.with_name(reel_path.stem + "_music.mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(reel_path),
+        "-ss", f"{music_start:.3f}", "-i", str(music_path),
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-af", f"afade=t=out:st={fade_start:.3f}:d=1.5",
+        "-shortest", "-movflags", "+faststart",
+        str(tmp_path),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode == 0:
+            tmp_path.replace(reel_path)
+            logger.info(f"  ✓ Music applied → {reel_path.name}")
+        else:
+            logger.error(f"  ✗ Music overlay failed: {result.stderr.strip()[-400:]}")
+            tmp_path.unlink(missing_ok=True)
+    except Exception as e:
+        logger.error(f"  ✗ Music overlay error: {e}")
+        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +676,7 @@ def run_pipeline(
     style: str = "techno",
     provider: str = "",
     multi: bool = False,
+    music: Path | None = None,
 ):
     """Run the complete UNREEL V3 pipeline."""
     # Ensure directories exist
@@ -513,9 +711,11 @@ def run_pipeline(
         with open(results_path, "w", encoding="utf-8") as f:
             json.dump(serializable, f, indent=2, ensure_ascii=False)
 
-    # Resume: when running only a SUBSET of phases, seed from the last saved run
-    # so downstream phases (e.g. regie) can reuse prior analysis without recomputing.
-    if phases is not None and results_path.exists():
+    # Resume: ALWAYS seed from the last saved run when present. The expensive,
+    # preset-independent analysis (audio sync, vision tagging) is then reused
+    # across runs — only the preset-dependent phases (regie/copy/export) re-run.
+    # A full run no longer wipes prior vision tags by starting from scratch.
+    if results_path.exists():
         try:
             with open(results_path, encoding="utf-8") as f:
                 all_results = json.load(f)
@@ -527,10 +727,15 @@ def run_pipeline(
     if phases is None or "setup" in phases:
         all_results["luts"] = phase_0_setup()
 
-    # Phase 1: Audio Sync + Kick/Snare
-    if phases is None or "sync" in phases or "analyze" in phases:
+    # Phase 1: Audio Sync + Kick/Snare (preset-independent → reuse cache).
+    # Explicitly requesting --phase sync/analyze forces a recompute; a full
+    # run reuses cached results if present.
+    sync_requested = phases is not None and ("sync" in phases or "analyze" in phases)
+    if sync_requested or (phases is None and not all_results.get("phase_1")):
         all_results["phase_1"] = phase_1_sync(video_paths)
         _save_progress()
+    elif all_results.get("phase_1"):
+        logger.info("✓ Reusing cached audio sync (phase_1)")
 
     # Phase 2: Video Analysis + Vision (resumable, saves after each clip)
     if phases is None or "vision" in phases or "analyze" in phases:
@@ -568,7 +773,12 @@ def run_pipeline(
     if phases is None or "export" in phases:
         edit_plan = all_results.get("phase_3", {}).get("edit_plan")
         sync_data = all_results.get("phase_1", {}).get("sync")
-        phase_5_assembly(edit_plan, sync_data=sync_data)
+        phase_5_assembly(
+            edit_plan,
+            sync_data=sync_data,
+            music_path=music,
+            vision_data=all_results.get("phase_2"),
+        )
 
     # Final save
     _save_progress()
@@ -641,6 +851,13 @@ Examples:
         help="Generate edit plans from ALL available AI providers for comparison",
     )
     parser.add_argument(
+        "--music",
+        type=Path,
+        default=None,
+        help="Lay a music track over the final reel (replaces original audio). "
+             "The track's drop is auto-aligned to the reel's energy peak.",
+    )
+    parser.add_argument(
         "--phase",
         nargs="*",
         choices=["setup", "sync", "vision", "regie", "copy", "export", "analyze"],
@@ -681,6 +898,7 @@ Examples:
         style=args.style,
         provider=args.provider,
         multi=args.multi,
+        music=args.music,
     )
 
 

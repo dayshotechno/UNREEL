@@ -30,3 +30,4 @@ mlx>=0.16.0; sys_platform == 'darwin'
 mlx-lm>=0.16.0; sys_platform == 'darwin'
 mlx-vlm>=0.0.12; sys_platform == 'darwin'
 outlines[mlxlm]>=0.0.44; sys_platform == 'darwin'
+json-repair>=0.30.0   # Repair malformed LLM JSON output

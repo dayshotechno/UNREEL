@@ -1,0 +1,13530 @@
+# UNREEL V3 – AI Audit Export
+
+> Kontext-Bündel für ein externes Code-Audit. **Ausgeschlossen:** `.env` und andere Secret-Dateien, Binär-/Media-Dateien, generierte Daten (`luts/*.cube`), Caches sowie die Daten-/Vendor-Ordner `input/`, `output/`, `LOGO/`, `.agents/`, `.claude/`.
+
+## 1. Verzeichnisstruktur
+
+```text
+UNREEL/
+├── analyzer/
+│   ├── __pycache__/   [9 Dateien ausgelassen]
+│   ├── __init__.py
+│   ├── audio_analyzer.py
+│   ├── clip_exporter.py
+│   ├── clip_normalizer.py
+│   ├── frame_hasher.py
+│   ├── highlight_engine.py
+│   ├── tracking_engine.py
+│   ├── video_analyzer.py
+│   └── watermark_detector.py
+├── src/
+│   ├── __pycache__/   [1 Dateien ausgelassen]
+│   └── main.py
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   └── app.js
+│   └── index.html
+├── tests/
+│   ├── __pycache__/   [8 Dateien ausgelassen]
+│   ├── __init__.py
+│   ├── test_audio_sync.py
+│   ├── test_config.py
+│   ├── test_copywriter.py
+│   ├── test_kick_snare_detector.py
+│   ├── test_lut_generator.py
+│   ├── test_regie_engine.py
+│   └── test_vision_engine.py
+├── .agents/   [39 Dateien ausgelassen]
+├── .aider-desk/   [5 Dateien ausgelassen]
+├── .aider.tags.cache.v4/   [3 Dateien ausgelassen]
+├── .claude/   [33 Dateien ausgelassen]
+├── .git/   [41 Dateien ausgelassen]
+├── __pycache__/   [9 Dateien ausgelassen]
+├── input/   [83 Dateien ausgelassen]
+├── input_pov/   [13 Dateien ausgelassen]
+├── LOGO/   [5 Dateien ausgelassen]
+├── luts/   [3 Dateien ausgelassen]
+├── output/   [820 Dateien ausgelassen]
+├── sessonexport_claude/   [7 Dateien ausgelassen]
+├── .gitignore
+├── _gen_audit.py
+├── ai_audit_export.md
+├── anleitung.md
+├── app.py
+├── audio_sync.py
+├── CLAUDE.md
+├── COMMANDS.md
+├── config.py
+├── copywriter.py
+├── env.example
+├── handover.md
+├── implementation_plan.md
+├── integration_flask_endpoints.py
+├── kick_snare_detector.py
+├── lut_generator.py
+├── main.py
+├── README.md
+├── REEL_recherche.md
+├── regie_engine.py
+├── requirements.txt
+├── rollout_plan.md
+├── skills-lock.json
+├── vision_engine.py
+└── yolo11n.pt
+```
+
+## 2. Konfiguration & Architektur-Doku
+
+### `requirements.txt`
+
+```text
+# UNREEL V3 – Python Dependencies
+# Install: pip install -r requirements.txt
+
+# --- Audio Analysis ---
+librosa>=0.10.0
+scipy>=1.11.0
+numpy>=1.24.0
+
+# --- Video Processing ---
+opencv-python-headless>=4.8.0
+moviepy>=1.0.3
+
+# --- Local AI Models (via Ollama) ---
+ollama>=0.4.0
+
+# --- Regie Engine: Multi-Provider AI ---
+anthropic>=0.30.0
+google-generativeai>=0.8.0
+openai>=1.30.0
+
+# --- Configuration ---
+python-dotenv>=1.0.0
+
+# --- Optional: Testing ---
+pytest>=7.4.0
+
+```
+
+### `env.example`
+
+```ini
+# UNREEL V3 – Environment Configuration
+# Copy to .env and fill in your values. NEVER commit this file with real keys.
+
+# --- Regie Engine: Active Provider ---
+# Options: "claude", "gemini", "deepseek", "auto"
+# "auto" tries providers in fallback order: claude → gemini → deepseek
+REGIE_PROVIDER=auto
+
+# --- Anthropic (Claude Fable 5) ---
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=claude-fable-5
+
+# --- Google Gemini 3.1 Pro ---
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.1-pro
+
+# --- DeepSeek V4 Pro ---
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+
+# --- Ollama (Local Models) ---
+OLLAMA_HOST=http://localhost:11434
+GEMMA_MODEL=gemma4:e2b
+COPYWRITER_MODEL=llama3.2
+
+# --- LUT Color Grading ---
+# Options: underground_dark, vhs_analog, neon_nights, none
+DEFAULT_LUT=underground_dark
+
+```
+
+### `.gitignore`
+
+```text
+.aider*
+.env
+
+```
+
+### `CLAUDE.md`
+
+```markdown
+# CLAUDE.md – UNREEL V3 Project Context
+
+## Project Overview
+
+UNREEL V3 is a Python CLI tool that transforms raw, low-quality DJ gig footage (16:9) into polished, synced Instagram Reels (9:16). The pipeline analyzes audio, tags video content with local AI, generates AI-directed edit plans via cloud APIs, and exports with cinematic 3D-LUT color grading. **Everything runs on CPU – no GPU required.**
+
+## Architecture
+
+```
+unreel_v3/
+├── analyzer/                    # Core analysis modules
+│   ├── config.py                # Central config (loads from .env)
+│   ├── audio_sync.py            # Cross-correlation multi-clip sync (scipy)
+│   ├── kick_snare_detector.py   # Percussion detection (librosa)
+│   ├── vision_engine.py         # Scene tagging via Gemma 4 E2B (Ollama)
+│   ├── regie_engine.py          # Multi-provider AI director (Claude/Gemini/DeepSeek)
+│   ├── copywriter.py            # Filenames + Instagram captions (Llama 3.2, Ollama)
+│   └── lut_generator.py         # Programmatic .cube LUT generation (numpy)
+├── luts/                        # Generated 3D-LUT files (.cube)
+│   ├── underground_dark.cube    # Default: crushed blacks, cyan tint, desaturated
+│   ├── vhs_analog.cube          # Milky shadows, color bleed, faded
+│   └── neon_nights.cube         # High saturation, magenta/blue highlights
+├── src/
+│   └── main.py                  # CLI entry point & pipeline orchestrator
+├── integration_flask_endpoints.py  # Copy-paste Flask routes for existing app
+├── requirements.txt
+├── .env.example
+├── input/                       # User places raw footage here
+└── output/                      # All exports land here
+```
+
+## Pipeline Phases
+
+| Phase | Module | What it does |
+|-------|--------|--------------|
+| 0 | `lut_generator` | Generates `.cube` LUT files if missing |
+| 1 | `audio_sync` + `kick_snare_detector` | Syncs multiple clips via FFT cross-correlation, detects kicks/snares |
+| 2 | `vision_engine` | Samples frames → Gemma 4 E2B tags scenes (CROWD_ENERGY, DJ_SETUP, etc.) |
+| 3 | `regie_engine` | Sends analysis JSON to cloud AI → gets millisecond-accurate edit plan |
+| 4 | `copywriter` | Generates filenames + Instagram captions via local Llama 3.2 |
+| 5 | `main.py` (assembly) | FFmpeg exports with 3D-LUT, 9:16 crop, slow-mo |
+
+## AI Provider Setup (Regie Engine)
+
+Three cloud providers for the regie phase, with automatic fallback:
+
+| Provider | Model | SDK | Env Key |
+|----------|-------|-----|---------|
+| Anthropic | Claude Fable 5 | `anthropic` | `ANTHROPIC_API_KEY` |
+| Google | Gemini 3.1 Pro | `google-generativeai` | `GEMINI_API_KEY` |
+| DeepSeek | V4 Pro | `openai` (compatible endpoint) | `DEEPSEEK_API_KEY` |
+
+`REGIE_PROVIDER=auto` tries Claude → Gemini → DeepSeek. Set at least one key.
+
+Local models via Ollama:
+- **Gemma 4 E2B** (`gemma4:e2b`) – scene tagging
+- **Llama 3.2** (`llama3.2`) – copywriting
+
+## Key Commands
+
+```bash
+# Full pipeline
+python -m src.main --input ./input --preset highlight --duration 60
+
+# Specific provider
+python -m src.main --provider gemini --phase regie
+
+# All providers (A/B comparison)
+python -m src.main --multi --phase regie
+
+# Individual phases
+python -m src.main --phase sync       # Audio sync only
+python -m src.main --phase vision     # Vision tagging only
+python -m src.main --luts             # Generate LUTs only
+
+# Module-level CLI
+python -m analyzer.audio_sync input/*.mov
+python -m analyzer.kick_snare_detector input/clip.mov
+python -m analyzer.vision_engine input/clip.mov
+python -m analyzer.copywriter demo
+python -m analyzer.regie_engine output/pipeline_results.json --provider deepseek
+python -m analyzer.lut_generator
+```
+
+## Development Rules
+
+### Critical Constraints
+- **CPU-only.** NEVER assume CUDA, GPU, or `torch.cuda`. All ML inference runs on CPU via Ollama or cloud APIs.
+- **No hardcoded secrets.** All API keys load from `.env` via `python-dotenv`. Use `os.environ.get()`.
+- **Relative paths only.** Use `pathlib.Path` relative to `BASE_DIR`. No absolute paths.
+- **Graceful degradation.** If Ollama is not running, vision/copywriting phases return empty results and the pipeline continues. If no API key is set, the regie phase skips with a clear warning.
+
+### Python Conventions
+- **snake_case** for functions and variables.
+- **kebab-case** for file names (Python modules use snake_case per convention).
+- All modules have a `if __name__ == "__main__"` CLI block for standalone testing.
+- All modules return typed dataclasses with `.to_dict()` and optional `.save(path)` methods.
+- Use `logging` module (never `print()` in library code). CLI entry points may print.
+- Handle FFmpeg tasks with `subprocess.run()`, not async (simplicity over complexity).
+
+### Audio & Video
+- Audio sync uses `scipy.signal.correlate(mode='full', method='fft')` for CPU performance.
+- Kick detection: librosa Mel-spectrogram filtered to <200Hz + onset detection.
+- Snare detection: same approach, 2kHz–8kHz band.
+- Video cropping to 9:16: `crop=ih*9/16:ih,scale=1080:1920` in FFmpeg.
+- Color grading via `lut3d=` FFmpeg filter with generated `.cube` files.
+- Slow-motion for high-motion clips: `setpts=PTS*2.0` (50% speed).
+- Seamless loops: split clip in half, swap halves, crossfade at junction.
+
+### Data Flow
+- All analysis results are plain Python `dict` / `dataclass` → serialized to JSON.
+- The pipeline accumulates results in `all_results` dict and saves to `output/pipeline_results.json`.
+- The regie engine receives the full analysis dict, trims large arrays, and sends to the AI as JSON.
+- AI responses are parsed as JSON (markdown-fence-stripped), validated, and auto-fixed.
+
+### Edit Plan Schema
+```json
+{
+  "clips": [
+    {
+      "video": "filename.mov",
+      "start": 12.345,
+      "end": 18.789,
+      "transition": "hard_cut_on_beat",
+      "reason": "Drop starts here",
+      "crop": "9:16",
+      "lut": "underground_dark",
+      "slow_mo": false,
+      "slow_mo_factor": 1.0
+    }
+  ],
+  "narrative": "...",
+  "total_duration": 60.0,
+  "provider_used": "claude",
+  "model_used": "claude-fable-5"
+}
+```
+
+### Provider Architecture
+- Each provider implements the `RegieProvider` protocol: `name`, `model_id`, `is_available()`, `call()`.
+- `resolve_provider("auto")` iterates fallback order and returns the first with an API key.
+- `generate_multi_plan()` calls all available providers and returns a dict of plans.
+- Gemini uses `response_mime_type="application/json"` to force structured output.
+- DeepSeek uses `response_format={"type": "json_object"}` via OpenAI-compatible API.
+- Claude uses standard Anthropic Messages API.
+
+### Vision Tag Taxonomy
+`CROWD_ENERGY`, `DJ_SETUP`, `LIGHT_SHOW`, `TRANSITION`, `BREAKDOWN`, `BACKSTAGE`, `ARRIVAL`, `PACKDOWN`, `UNUSABLE`
+
+`ARRIVAL` (load-in / getting ready before the set) and `PACKDOWN` (packing up / empty floor after the set) are story tags that drive the `pov_story` preset's `before`/`after` phases. They carry no highlight bonus (`0.0`, like `BACKSTAGE`), so they don't affect energy-based presets.
+
+Tag bonus scores for highlight engine: `CROWD_ENERGY=+0.8`, `LIGHT_SHOW=+0.5`, `DJ_SETUP=+0.3`, `BREAKDOWN=+0.2`, `TRANSITION=+0.1`, `BACKSTAGE/ARRIVAL/PACKDOWN=0.0`, `UNUSABLE=-1.0`
+
+### Presets
+- `highlight` – Best moments, fast cuts, 60-90s
+- `drop_focus` – Build-up → drop → aftermath
+- `seamless_loop` – 15-30s, algorithmic swap-loop
+- `moody` – Atmospheric, slower cuts, BREAKDOWN + LIGHT_SHOW
+- `pov_story` – POV / "A Day in the Life": story-driven vlog reel ordered `before → during → after` a gig (uses BACKSTAGE clips), with an **anti-advice hook** (contrarian text line) in the first ~3s. Adds plan field `hook_text` and per-clip `phase` (`before`/`during`/`after`). Hook is metadata only — not burned into the video.
+
+## Existing Codebase (already implemented, not in this project)
+
+The user has an existing Flask-based UNREEL system with these modules already built:
+- `audio_analyzer.py` (BPM, beats, drops, buildups)
+- `video_analyzer.py` (motion, scenes, light)
+- `highlight_engine.py` (scoring)
+- `tracking_engine.py` (YOLO auto-framing)
+- `clip_exporter.py` (FFmpeg export with eq-filter)
+- `app.py` (Flask server with ingestion)
+
+The new modules in this project (`analyzer/`) are designed to be integrated into that existing system. `integration_flask_endpoints.py` provides copy-paste Flask routes.
+
+## Dependencies
+
+```
+librosa>=0.10.0        # Audio analysis
+scipy>=1.11.0          # Cross-correlation
+numpy>=1.24.0          # LUT generation math
+opencv-python-headless  # Frame extraction
+moviepy>=1.0.3         # Video processing
+ollama>=0.4.0          # Local AI (Gemma, Llama)
+anthropic>=0.30.0      # Claude API
+google-generativeai>=0.8.0  # Gemini API
+openai>=1.30.0         # DeepSeek API (OpenAI-compatible)
+python-dotenv>=1.0.0   # .env loading
+```
+
+```
+
+### `README.md`
+
+```markdown
+# UNREEL V3
+
+**Automatisierte DJ-Video-Pipeline.** Verwandelt rohes Gig-Footage in ein fertiges, hochkant
+geschnittenes Instagram-Reel (1080×1920) – mit Audio-Analyse, lokalem KI-Szenen-Tagging,
+KI-gesteuertem Schnittplan und 3D-LUT-Color-Grading. **Läuft komplett auf CPU.**
+
+```
+ 0 Setup  →  1 Sync  →  2 Vision  →  3 Regie  →  4 Copy  →  5 Export
+ (LUTs)      (Audio)     (Tags)       (KI-Plan)   (Captions)  (Schnitt + Reel)
+```
+
+Ein Befehl → ein fertiges Reel:
+
+```powershell
+python main.py -i ./input -p pov_story -d 45
+# Ergebnis: output/reel_pov_story.mp4
+```
+
+---
+
+## Quickstart
+
+```powershell
+# 1) Abhängigkeiten
+python -m pip install -r requirements.txt
+python -m pip install anthropic openai google-generativeai ollama
+
+# 2) Keys eintragen (mind. einer reicht)
+Copy-Item env.example .env ; notepad .env
+
+# 3) Lokale Modelle (für Vision + Captions)
+ollama pull gemma4:e2b
+ollama pull llama3.2:3b
+
+# 4) Clips nach ./input legen und starten
+python main.py -i ./input -p pov_story -d 45
+```
+
+> Detaillierte Schritt-für-Schritt-Anleitung, alle Optionen und Troubleshooting:
+> **→ [COMMANDS.md](COMMANDS.md)**
+
+---
+
+## Presets
+
+| Preset | Beschreibung |
+|--------|--------------|
+| `highlight` | Beste Momente, hohe Energie, schnelle Cuts |
+| `drop_focus` | Aufbau → Drop → Aftermath |
+| `seamless_loop` | Kurz, Ende fließt in den Anfang (ohne API-Call) |
+| `moody` | Atmosphärisch, langsamere Cuts |
+| `pov_story` | POV / „A Day in the Life" mit Anti-Advice-Hook |
+
+## AI-Provider (Regie-Phase)
+
+`REGIE_PROVIDER=auto` wählt automatisch in der Reihenfolge **DeepSeek → Claude → Gemini**
+(erster mit Key + installiertem SDK). Lokale Modelle laufen über Ollama (Gemma = Vision,
+Llama = Captions).
+
+## Wichtigste Ausgaben (`output/`)
+
+- **`reel_<preset>.mp4`** – das fertige Reel
+- `snippet_*.mp4` – die einzelnen Schnitt-Clips
+- `edit_plan.json` – der KI-Schnittplan (bei `pov_story` inkl. `hook_text`)
+- `captions.json` – Instagram-Captions
+
+---
+
+## Projekt-Struktur
+
+```
+UNREEL/
+├── src/main.py          # Pipeline-Orchestrator (Phasen 0–5)
+├── main.py              # Einstieg (delegiert an src/main.py)
+├── config.py            # Zentrale Konfiguration (lädt aus .env)
+├── audio_sync.py        # Audio-Cross-Correlation-Sync
+├── kick_snare_detector.py
+├── vision_engine.py     # Szenen-Tagging via Gemma (Ollama)
+├── regie_engine.py      # Multi-Provider KI-Regie (Schnittplan)
+├── copywriter.py        # Dateinamen + Captions via Llama
+├── lut_generator.py     # .cube-LUTs
+├── analyzer/            # Bestehende V2-Module (Flask-System)
+├── luts/                # Generierte Farb-LUTs
+├── tests/               # Offline-Unit-Tests
+├── input/               # Rohes Footage hier ablegen
+└── output/              # Alle Ergebnisse
+```
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests -t .
+```
+
+---
+
+**Dokumentation:** [COMMANDS.md](COMMANDS.md) (Anleitung & Befehle) · [CLAUDE.md](CLAUDE.md) (Architektur & Entwicklungsregeln)
+
+```
+
+### `COMMANDS.md`
+
+```markdown
+# UNREEL V3 – Anleitung & Befehls-Referenz
+
+Diese Anleitung erklärt, **was UNREEL macht**, **wie du in einem Befehl ein fertiges Reel
+erzeugst**, und **was in jeder Phase passiert**. Am Ende findest du einen Troubleshooting-Teil
+mit den häufigsten Problemen.
+
+> **Wo ausführen?** Immer aus dem Projekt-Root:
+> `C:\Users\DAY SHO\Desktop\UNREEL`
+>
+> **Start-Befehl:** `python main.py …` (kurz) **oder** gleichwertig `python -m src.main …`.
+> Beide rufen denselben Orchestrator in `src/main.py` auf.
+
+---
+
+## 1. Was macht UNREEL?
+
+UNREEL verwandelt rohes DJ-Gig-Material (querformatige Clips) automatisch in ein fertiges,
+hochkant geschnittenes Instagram-Reel (1080×1920). Die Pipeline durchläuft 6 Stufen:
+
+```
+ 0 Setup    →  1 Sync   →  2 Vision  →  3 Regie  →  4 Copy   →  5 Export
+ (LUTs)        (Audio)      (Tags)       (KI-Plan)   (Captions)  (Schnitt + Reel)
+```
+
+| Phase | Name | Was passiert | Braucht | Ergebnis |
+|------|------|--------------|---------|----------|
+| 0 | **Setup** | Erzeugt die Farb-LUTs (`.cube`), falls sie fehlen | – | `luts/*.cube` |
+| 1 | **Sync** | Synchronisiert mehrere Clips per Audio-Kreuzkorrelation; erkennt Kicks/Snares/BPM | ≥2 Clips | `audio_sync.json`, `percussion_map.json` |
+| 2 | **Vision** | Taggt Szenen je Clip mit dem lokalen Modell Gemma (z. B. `CROWD_ENERGY`, `ARRIVAL`) | **Ollama läuft** | Tags in `pipeline_results.json` |
+| 3 | **Regie** | Schickt die Analyse an eine Cloud-KI → bekommt einen millisekundengenauen Schnittplan | **API-Key** | `edit_plan.json` |
+| 4 | **Copy** | Generiert Dateinamen + Instagram-Captions mit lokalem Llama | Ollama läuft | `captions.json` |
+| 5 | **Export** | Schneidet jeden Plan-Clip (Trim → 9:16-Crop → LUT) **und fügt alles zum finalen Reel zusammen** | FFmpeg | `snippet_*.mp4`, **`reel_<preset>.mp4`** |
+
+**Wichtig:** Die Phasen geben ihre Ergebnisse innerhalb *eines* Laufs im Speicher weiter und
+speichern nach jeder Phase nach `output/pipeline_results.json`. Wenn du nur einzelne Phasen
+startest, werden vorhandene Ergebnisse von der Platte nachgeladen (siehe [Abschnitt 5](#5-phasenweise-arbeiten--resume)).
+
+---
+
+## 2. Einmaliges Setup
+
+```powershell
+# 1) Python-Abhängigkeiten
+python -m pip install -r requirements.txt
+
+# 2) Cloud-AI-SDKs (für die Regie-Phase) und Ollama-Client
+python -m pip install anthropic openai google-generativeai ollama
+
+# 3) .env aus der Vorlage anlegen
+Copy-Item env.example .env
+notepad .env
+```
+
+In der `.env` mindestens **einen** Provider-Key eintragen. `REGIE_PROVIDER=auto` nimmt automatisch
+den ersten verfügbaren in der Reihenfolge **deepseek → claude → gemini**:
+
+```ini
+REGIE_PROVIDER=auto
+ANTHROPIC_API_KEY=...          # Claude  (Modell: claude-fable-5)
+GEMINI_API_KEY=...             # Gemini  (Modell: gemini-3.1-pro)
+DEEPSEEK_API_KEY=...           # DeepSeek (Modell: deepseek-v4-pro)  ← Primär
+GEMMA_MODEL=gemma4:e2b         # Vision-Tagging (lokal)
+COPYWRITER_MODEL=llama3.2:3b   # Captions (lokal) – exakt der installierte Tag!
+DEFAULT_LUT=underground_dark
+```
+
+> ⚠️ Trage bei `COPYWRITER_MODEL` **genau den installierten Ollama-Tag** ein
+> (`llama3.2:3b`, nicht `llama3.2`), sonst nutzt die Copy-Phase nur den Fallback-Text.
+
+```powershell
+# 4) Ollama (lokale Modelle) installieren/starten und Modelle holen
+ollama serve
+ollama pull gemma4:e2b      # für Phase 2 (Vision)
+ollama pull llama3.2:3b     # für Phase 4 (Copywriting)
+```
+
+**Prüfen, ob die Provider bereit sind** (kein API-Call, keine Kosten):
+
+```powershell
+@'
+import regie_engine as r
+for p in r.list_available_providers():
+    print(f"{p['name']:9s} {p['model']:22s} verfuegbar={p['available']}")
+'@ | python -
+```
+
+`verfuegbar=True` heißt: **Key in .env UND zugehöriges SDK installiert**.
+
+---
+
+## 3. Schnellstart – ein Befehl, ein Reel
+
+Lege deine Clips in einen Ordner (z. B. `input_pov/`) und starte die komplette Pipeline:
+
+```powershell
+python main.py -i ./input_pov -p pov_story -d 45
+```
+
+Danach liegt in `output/`:
+- **`reel_pov_story.mp4`** – das fertige, zusammengeschnittene Reel
+- `snippet_001…00N.mp4` – die einzelnen Clips (Bausteine)
+- `edit_plan.json` – der Schnittplan (bei `pov_story` inkl. `hook_text`)
+- `captions.json` – Caption-Vorschläge
+
+> Der **Hook-Text** wird **nicht** ins Video gebrannt (bewusst). Du legst ihn beim Posten in den
+> ersten ~3 Sekunden als Text-Overlay drüber.
+
+---
+
+## 4. Alle Optionen der Pipeline
+
+```powershell
+python main.py [OPTIONEN]
+```
+
+| Flag | Werte | Bedeutung |
+|------|-------|-----------|
+| `-i`, `--input` | Pfad | Ordner mit den Quell-Clips (Default `./input`) |
+| `-o`, `--output` | Pfad | Ausgabe-Ordner (Default `./output`) |
+| `-p`, `--preset` | siehe unten | Schnitt-Stil (Default `highlight`) |
+| `-d`, `--duration` | Sekunden | Ziel-Länge des Reels (Default `60`) |
+| `-s`, `--style` | `techno`,`house`,`minimal` | Caption-Stil für Phase 4 (Default `techno`) |
+| `--provider` | `deepseek`,`claude`,`gemini`,`auto` | Erzwingt einen Provider (Default: `auto` = aus .env) |
+| `--multi` | – | Erzeugt Pläne von **allen** verfügbaren Providern zum Vergleich |
+| `--phase` | siehe [Abschnitt 5] | Nur bestimmte Phasen ausführen |
+| `--luts` | – | Nur die LUT-Dateien erzeugen und beenden |
+| `-v`, `--verbose` | – | Ausführliche Debug-Ausgaben |
+
+### Presets (`-p`)
+
+| Preset | Beschreibung | Typische Länge |
+|--------|--------------|----------------|
+| `highlight` | Beste Momente, hohe Energie, schnelle Cuts | 60–90 s |
+| `drop_focus` | Aufbau → Drop → Aftermath, um die Drops zentriert | 60 s |
+| `seamless_loop` | Kurz, Ende fließt nahtlos in den Anfang (algorithmisch, **kein** API-Call) | 15–30 s |
+| `moody` | Atmosphärisch, langsamere Cuts, `BREAKDOWN` + `LIGHT_SHOW`-lastig | 60 s |
+| `pov_story` | **POV / „A Day in the Life"**: Story `before → during → after` + Anti-Advice-Hook | 30–60 s |
+
+```powershell
+# Beispiele
+python main.py -i ./input -p highlight -d 60
+python main.py -i ./input -p drop_focus -d 60 --provider claude
+python main.py -i ./input -p pov_story  -d 45 -v
+python main.py -i ./input -p highlight   --multi      # Plan von jedem Provider
+```
+
+---
+
+## 5. Phasenweise arbeiten & Resume
+
+Mit `--phase` führst du nur ausgewählte Stufen aus (mehrere möglich). Das ist nützlich, weil die
+**Vision-Phase langsam** ist (siehe [Performance](#7-performance--erwartungen)) – du willst sie nicht
+bei jedem Regie-Versuch neu rechnen.
+
+```powershell
+python main.py -i ./input --phase setup            # Nur LUTs (= --luts)
+python main.py -i ./input --phase sync             # Nur Audio-Sync + Percussion
+python main.py -i ./input --phase vision           # Nur Szenen-Tagging (Ollama)
+python main.py -i ./input --phase analyze          # sync + vision in einem
+python main.py -i ./input --phase regie            # Nur Schnittplan (braucht vorh. Vision)
+python main.py -i ./input --phase copy             # Nur Captions
+python main.py -i ./input --phase export           # Nur Schnitt + finales Reel
+python main.py -i ./input --phase regie export     # Plan neu + Reel bauen
+```
+
+**So funktioniert Resume (zwei Mechanismen):**
+
+1. **Phasen-Resume:** Startest du nur *einzelne* Phasen, lädt UNREEL die vorhandene
+   `output/pipeline_results.json` und nutzt deren Daten. So kann z. B. `--phase regie export`
+   die früher erzeugten Vision-Tags weiterverwenden, ohne neu zu taggen.
+2. **Clip-Resume (Vision):** Die Vision-Phase speichert **nach jedem Clip**. Bricht der Lauf ab
+   (z. B. Ruhezustand), startest du `--phase vision` einfach erneut – bereits getaggte Clips werden
+   übersprungen (`Skipping … already tagged`).
+
+> **Faustregel für pov_story:** erst Vision (einmal, dauert), dann beliebig oft Regie+Export:
+> ```powershell
+> python main.py -i ./input_pov --phase vision
+> python main.py -i ./input_pov -p pov_story -d 45 --phase regie export
+> ```
+
+---
+
+## 6. pov_story im Detail
+
+Das `pov_story`-Preset baut eine kleine Erzählung über einen Gig-Tag:
+
+- **before** – Ankunft, Vorbereitung, Soundcheck, Backstage (Tags `ARRIVAL`, `BACKSTAGE`, `DJ_SETUP`)
+- **during** – das Set, Drops, Crowd (`CROWD_ENERGY`, `LIGHT_SHOW`, `DJ_SETUP`)
+- **after** – Abbau, leerer Floor, Comedown (`PACKDOWN`, `BACKSTAGE`, `BREAKDOWN`)
+
+Zusätzlich erzeugt die Regie eine **Anti-Advice-Hook**-Zeile (bewusst konträr/provokant) für die
+ersten ~3 s, z. B. *„the crowd doesn't care about your 'journey'."* Sie steht im `edit_plan.json`
+unter `hook_text` und in jedem Clip steht `phase` (before/during/after).
+
+**Voraussetzung für gute Phasen:** Die Vision-Phase muss `ARRIVAL`/`PACKDOWN` erkannt haben.
+Das Modell `gemma4:e2b` tut das nicht immer zuverlässig – wenn die before/after-Phase dünn wird,
+hilft eine bewusste Clip-Auswahl (frühe Tagesclips für „before", späte/Aufräum-Clips für „after").
+
+**Hinweis zu deinem Material:** Die Sync-Phase ist für *gleichzeitige* Multicam-Aufnahmen gedacht.
+Wenn deine Clips über den Tag verteilt (sequenziell) sind, ist Sync sinnlos und langsam – lass sie
+bei `pov_story` weg (also `--phase vision` + `--phase regie export` statt der vollen Pipeline,
+oder die volle Pipeline akzeptiert die unnütze Sync einfach).
+
+---
+
+## 7. Performance & Erwartungen
+
+- **Vision (Phase 2) ist der Flaschenhals:** Auf CPU braucht jeder Ollama-Batch ~60–110 s. Große/lange
+  Clips werden komplett dekodiert. Bei vielen oder großen Clips → **viele Minuten bis Stunden.**
+  → Für erste Tests eine **kleine Auswahl** (10–15 Clips) verwenden, riesige Dateien (>100 MB) meiden.
+- **Regie (Phase 3):** 1 API-Call, ~10–60 s. DeepSeek `deepseek-v4-pro` ist ein **Reasoning-Modell** und
+  braucht ein hohes Token-Budget (Default `max_tokens=8192`), sonst kommt leerer JSON-Output zurück.
+- **Copy (Phase 4):** 2 Ollama-Calls **pro Clip** → bei vielen Clips schnell 15–25 Min. Wenn du nur das
+  Reel willst, kannst du Phase 4 weglassen (`--phase … export` ohne `copy`).
+- **Export (Phase 5):** FFmpeg pro Clip + finaler Concat. Slow-Mo-Quellen (120 fps) werden für das
+  finale Reel auf `REEL_FPS=30` re-encodiert, damit das Timing stimmt.
+- **Lange Läufe:** Verhindere den Ruhezustand des Rechners – sonst bricht die Vision-Phase ab (Resume
+  rettet die bereits getaggten Clips, aber der Rest muss erneut laufen).
+
+---
+
+## 8. Module einzeln (Standalone-CLIs)
+
+Praktisch zum Testen einzelner Bausteine:
+
+```powershell
+python lut_generator.py                       # LUTs -> luts/*.cube
+python audio_sync.py input/*.mov              # Audio-Sync (mind. 2 Clips)
+python kick_snare_detector.py input/clip.mov  # Kick/Snare/BPM eines Clips
+python vision_engine.py input/clip.mov        # Szenen-Tags (braucht Ollama)
+python copywriter.py demo                      # Copywriting-Demo (braucht Ollama)
+
+# Regie direkt aus einer Analyse-JSON (kein erneutes Taggen):
+python regie_engine.py output/pipeline_results.json -p pov_story --provider deepseek
+python regie_engine.py output/pipeline_results.json -p highlight --multi
+```
+
+`regie_engine.py`-Flags: `-p/--preset`, `-d/--duration`, `--provider`, `--multi`, `-o/--output`, `-v`.
+
+---
+
+## 9. Tests
+
+```powershell
+python -m unittest discover -s tests -t .            # Alle Offline-Tests (kein API/Ollama/FFmpeg)
+python -m unittest discover -s tests -t . -v         # Ausführlich
+python -m unittest tests.test_regie_engine           # Eine Datei
+python -m unittest tests.test_regie_engine.TestPovStoryPreset   # Eine Klasse
+```
+
+---
+
+## 10. Output-Dateien
+
+| Pfad | Inhalt |
+|------|--------|
+| `output/pipeline_results.json` | Gesammelte Analyse aller Phasen (Eingabe für die Regie). Wird nach jeder Phase aktualisiert. |
+| `output/edit_plan.json` | Schnittplan: Clips mit `start`/`end`/`lut`/`transition`; bei `pov_story` zusätzlich `hook_text` + pro Clip `phase`. |
+| `output/snippet_001…00N.mp4` | Einzelne geschnittene Clips (Bausteine, in Plan-Reihenfolge). |
+| **`output/reel_<preset>.mp4`** | **Das fertige Reel** (alle Snippets zusammengefügt, 1080×1920\@30fps). |
+| `output/captions.json` | Dateinamen + Instagram-Captions aus Phase 4. |
+| `output/concat_list.txt` | FFmpeg-Liste der Snippets (Reihenfolge); manuell editierbar, dann neu concatenaten. |
+| `luts/*.cube` | Farb-LUTs: `underground_dark`, `vhs_analog`, `neon_nights`. |
+| `.env` | API-Keys + Konfiguration – **niemals committen.** |
+
+---
+
+## 11. Troubleshooting
+
+| Symptom | Ursache | Lösung |
+|--------|---------|--------|
+| `ollama package not installed` | Python-Client fehlt | `python -m pip install ollama` (Ollama-Server muss separat laufen) |
+| Vision liefert 0 Tags für einen Clip | `gemma4:e2b` antwortete mit leerem JSON (nicht-deterministisch) | Unkritisch; ggf. Clip erneut taggen (Resume überspringt die fertigen) |
+| Vision bricht mitten drin ab | Rechner ist eingeschlafen / Prozess gekillt | `--phase vision` erneut starten → macht ab dem letzten Clip weiter; Ruhezustand deaktivieren |
+| Regie: `Invalid JSON … char 0` | Reasoning-Modell hat das Token-Budget aufgebraucht | Bereits gelöst (`max_tokens=8192`); bei sehr großen Analysen Provider wechseln |
+| Regie: `model not found` | Modell-ID gilt nicht für deinen Account | In `.env` `CLAUDE_MODEL`/`DEEPSEEK_MODEL`/`GEMINI_MODEL` auf eine gültige ID setzen |
+| Export: FFmpeg-Fehler bei `lut3d` | Absolute Windows-Pfade brechen den Filtergraphen | Bereits gelöst (relativer LUT-Pfad in Phase 5) – aus dem Projekt-Root starten |
+| Reel ist kürzer als `-d` | Plan plante mehr Sekunden, als der Quell-Clip lang ist | Normal – FFmpeg exportiert nur die echte Clip-Länge |
+| „No edit plan available – skipping assembly" | Phase 3 lieferte keinen Plan (kein Key / Provider-Fehler) | Provider-Status prüfen ([Abschnitt 2]); ggf. `--provider` setzen |
+
+---
+
+## 12. Kurz-Referenz
+
+```powershell
+# Volles pov_story-Reel
+python main.py -i ./input_pov -p pov_story -d 45
+
+# Empfohlener pov_story-Ablauf (Vision einmal, dann beliebig oft Plan+Reel)
+python main.py -i ./input_pov --phase vision
+python main.py -i ./input_pov -p pov_story -d 45 --phase regie export
+
+# Provider-Status (kostenlos)
+@'
+import regie_engine as r
+[print(p["name"], p["model"], p["available"]) for p in r.list_available_providers()]
+'@ | python -
+
+# Nur LUTs
+python main.py --luts
+
+# Tests
+python -m unittest discover -s tests -t .
+```
+
+```
+
+## 3. Quellcode (Python)
+
+### `_gen_audit.py`
+
+```python
+"""One-shot generator for ai_audit_export.md (audit context bundle).
+
+Strictly excludes: .env, binaries/media, generated data, caches, vendor/data dirs.
+"""
+import os
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+OUT = ROOT / "ai_audit_export.md"
+
+# --- What to include, in order ---------------------------------------------
+CONFIG_FILES = ["requirements.txt", "env.example", ".gitignore"]
+DOC_FILES = ["CLAUDE.md", "README.md", "COMMANDS.md"]
+
+# Source code: all .py under these locations (root + packages)
+SOURCE_DIRS = [".", "src", "analyzer", "tests"]
+
+# --- Hard exclusions --------------------------------------------------------
+EXCLUDE_DIRS = {
+    ".git", "__pycache__", "node_modules", "build", "dist", ".venv", "venv",
+    "env", ".mypy_cache", ".pytest_cache", "input", "input_pov", "output",
+    "luts", "LOGO", ".agents", ".claude", ".idea", ".vscode",
+    ".aider-desk", ".aider.tags.cache.v4", "sessonexport_claude",
+}
+# Never emit these filenames (secrets)
+EXCLUDE_FILES = {".env", ".env.local", ".env.production"}
+# Binary / media / generated extensions
+BINARY_EXT = {
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".png", ".jpg", ".jpeg",
+    ".gif", ".ico", ".pdf", ".cube", ".pyc", ".zip", ".mp3", ".wav", ".woff",
+    ".woff2", ".ttf", ".otf", ".bin", ".so", ".dll", ".exe",
+}
+
+
+def is_appledouble(name: str) -> bool:
+    return name.startswith("._")
+
+
+def lang_for(path: Path) -> str:
+    return {
+        ".py": "python", ".md": "markdown", ".txt": "text",
+        ".gitignore": "gitignore", ".example": "ini", ".json": "json",
+        ".cfg": "ini", ".toml": "toml", ".yml": "yaml", ".yaml": "yaml",
+        ".html": "html", ".css": "css", ".js": "javascript",
+    }.get(path.suffix, "ini" if path.name == "env.example" else "text")
+
+
+def read_text(p: Path) -> str:
+    return p.read_text(encoding="utf-8", errors="replace")
+
+
+# --- 1. Tree ----------------------------------------------------------------
+def build_tree() -> str:
+    lines = ["UNREEL/"]
+
+    def walk(d: Path, prefix: str):
+        try:
+            entries = sorted(d.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+        except OSError:
+            return
+        dirs = [e for e in entries if e.is_dir() and e.name not in EXCLUDE_DIRS]
+        files = [
+            e for e in entries
+            if e.is_file()
+            and not is_appledouble(e.name)
+            and not e.name.startswith(".aider")
+            and e.suffix.lower() not in BINARY_EXT
+            and e.name not in EXCLUDE_FILES
+        ]
+        # Collapsed data/vendor dirs: show name + count only
+        collapsed = [e for e in entries if e.is_dir() and e.name in EXCLUDE_DIRS]
+
+        items = [(e, "dir") for e in dirs] + [(e, "col") for e in collapsed] + [(e, "file") for e in files]
+        for i, (e, kind) in enumerate(items):
+            last = i == len(items) - 1
+            branch = "└── " if last else "├── "
+            ext_prefix = prefix + ("    " if last else "│   ")
+            if kind == "dir":
+                lines.append(f"{prefix}{branch}{e.name}/")
+                walk(e, ext_prefix)
+            elif kind == "col":
+                try:
+                    n = sum(1 for _ in e.rglob("*") if _.is_file())
+                except OSError:
+                    n = 0
+                lines.append(f"{prefix}{branch}{e.name}/   [{n} Dateien ausgelassen]")
+            else:
+                lines.append(f"{prefix}{branch}{e.name}")
+
+    walk(ROOT, "")
+    return "\n".join(lines)
+
+
+# --- 2/3. Collect file sections --------------------------------------------
+def section(rel: str, p: Path) -> str:
+    return f"### `{rel}`\n\n```{lang_for(p)}\n{read_text(p)}\n```\n"
+
+
+def collect_sources() -> list[tuple[str, Path]]:
+    seen = set()
+    out = []
+    for d in SOURCE_DIRS:
+        base = ROOT / d
+        if not base.exists():
+            continue
+        for p in sorted(base.glob("*.py")):
+            rel = p.relative_to(ROOT).as_posix()
+            if p.name in EXCLUDE_FILES or "(1)" in p.name:
+                continue
+            if rel in seen:
+                continue
+            seen.add(rel)
+            out.append((rel, p))
+    return out
+
+
+def main():
+    parts = []
+    parts.append("# UNREEL V3 – AI Audit Export\n")
+    parts.append(
+        "> Kontext-Bündel für ein externes Code-Audit. **Ausgeschlossen:** `.env` und andere "
+        "Secret-Dateien, Binär-/Media-Dateien, generierte Daten (`luts/*.cube`), Caches sowie die "
+        "Daten-/Vendor-Ordner `input/`, `output/`, `LOGO/`, `.agents/`, `.claude/`.\n"
+    )
+
+    # 1. Tree
+    parts.append("## 1. Verzeichnisstruktur\n")
+    parts.append("```text\n" + build_tree() + "\n```\n")
+
+    # 2. Config + docs
+    parts.append("## 2. Konfiguration & Architektur-Doku\n")
+    for name in CONFIG_FILES + DOC_FILES:
+        p = ROOT / name
+        if p.exists() and p.name not in EXCLUDE_FILES:
+            parts.append(section(name, p))
+
+    # 3. Source (Python)
+    parts.append("## 3. Quellcode (Python)\n")
+    for rel, p in collect_sources():
+        parts.append(section(rel, p))
+
+    # 4. Web frontend (Flask serves these)
+    web = []
+    static = ROOT / "static"
+    if static.exists():
+        for p in sorted(static.rglob("*")):
+            if p.is_file() and p.suffix.lower() in {".html", ".css", ".js"}:
+                web.append((p.relative_to(ROOT).as_posix(), p))
+    if web:
+        parts.append("## 4. Web-Frontend (static/)\n")
+        for rel, p in web:
+            parts.append(section(rel, p))
+
+    OUT.write_text("\n".join(parts), encoding="utf-8")
+
+    # Report
+    sources = collect_sources()
+    total_lines = sum(read_text(p).count("\n") for _, p in sources)
+    print(f"Geschrieben: {OUT.name}")
+    print(f"  Quelldateien: {len(sources)} ({total_lines} Zeilen Code)")
+    print(f"  Groesse: {OUT.stat().st_size/1024:.0f} KB")
+    print("  Enthaelt .env? ", ".env" in OUT.read_text(encoding="utf-8").replace("env.example", ""))
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+### `app.py`
+
+```python
+"""
+Reel-Vids – Flask API Server
+REST-API für Video-Analyse, Highlight-Erkennung und Clip-Export.
+"""
+
+import os
+import json
+import threading
+import time
+import zipfile
+from flask import Flask, jsonify, request, send_from_directory, send_file, Response
+from flask_cors import CORS
+import config
+
+app = Flask(__name__, static_folder="static", static_url_path="/static")
+CORS(app)
+
+# --- In-Memory State ---
+analysis_jobs = {}   # video_name -> {status, progress, stage, message, results}
+analysis_cache = {}  # video_name -> full results
+export_jobs = {}     # job_id -> {status, progress, message, results, filename}
+global_usage_log = {} # video_name -> count (how often used in global best of)
+
+# --- Cancel-Infrastruktur ---
+_job_threads: dict   = {}   # job_id -> thread_id (int)
+_cancel_events: dict = {}   # job_id -> threading.Event
+
+# Begrenzt parallele Analysen (librosa + OpenCV sind GIL-frei → echte CPU-Parallelität)
+_analysis_semaphore = threading.Semaphore(3)
+
+# Persistenz für Usage Log
+
+# Persistenz für Usage Log
+USAGE_LOG_PATH = os.path.join(config.OUTPUT_DIR, "global_usage_log.json")
+if os.path.exists(USAGE_LOG_PATH):
+    try:
+        with open(USAGE_LOG_PATH, "r") as f:
+            global_usage_log = json.load(f)
+    except: pass
+
+def save_usage_log():
+    with open(USAGE_LOG_PATH, "w") as f:
+        json.dump(global_usage_log, f)
+
+
+# ── Metadaten-Zeitstempel Cache ──────────────────────────────────
+_creation_time_cache = {}   # v_path -> float (Unix timestamp)
+
+def _get_video_creation_time(v_path):
+    """
+    Liest den echten Aufnahme-Zeitstempel aus den Video-Metadaten via ffprobe.
+    Das ist der Zeitpunkt der Aufnahme, nicht das Dateisystem-Datum.
+    Fallback: os.path.getmtime() falls keine Metadaten vorhanden.
+    Ergebnis wird in-memory gecacht.
+    """
+    if v_path in _creation_time_cache:
+        return _creation_time_cache[v_path]
+
+    ts = None
+    try:
+        import subprocess as _sp
+        cmd = [
+            "ffprobe", "-v", "quiet",
+            "-print_format", "json",
+            "-show_entries", "format_tags=creation_time",
+            v_path
+        ]
+        result = _sp.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            ts_str = data.get("format", {}).get("tags", {}).get("creation_time")
+            if ts_str:
+                from datetime import datetime
+                # "Z" → "+00:00" für Python < 3.11 Kompatibilität
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        pass
+
+    if ts is None:
+        ts = os.path.getmtime(v_path)   # Fallback: Filesystem-Zeit
+
+    _creation_time_cache[v_path] = ts
+    return ts
+
+
+# ── BPM Tempo-Matching ───────────────────────────────────────────
+# Stellt alle Clips eines Exports auf eine einheitliche Ziel-BPM (140–165),
+# indem jeder Clip um den Faktor (target_bpm / source_bpm) zeit-gestretcht wird.
+_source_bpm_cache = {}   # video_path -> float (erkannte BPM aus der Analyse)
+
+TARGET_BPM_MIN = 140.0
+TARGET_BPM_MAX = 165.0
+
+
+def _get_source_bpm(video_path):
+    """Liest die erkannte BPM (audio.tempo) aus dem _analysis.json eines Videos."""
+    if video_path in _source_bpm_cache:
+        return _source_bpm_cache[video_path]
+    bpm = 0.0
+    name = os.path.splitext(os.path.basename(video_path))[0]
+    p = os.path.join(config.OUTPUT_DIR, f"{name}_analysis.json")
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            bpm = float(json.load(f).get("audio", {}).get("tempo", 0) or 0)
+    except Exception:
+        bpm = 0.0
+    _source_bpm_cache[video_path] = bpm
+    return bpm
+
+
+def _match_octave(bpm, target):
+    """
+    Bringt eine BPM in dieselbe "Oktave" wie target (Faktor in [1/√2, √2]).
+    Korrigiert die typischen librosa-Fehler, bei denen Hard-Techno-Tracks
+    halb (z.B. 75 statt 150) oder doppelt erkannt werden. So bleibt der
+    resultierende Stretch-Faktor moderat (< ±41 %) statt katastrophaler 2×.
+    """
+    if bpm <= 0:
+        return 0.0
+    while bpm < target / 1.414:
+        bpm *= 2.0
+    while bpm > target * 1.414:
+        bpm /= 2.0
+    return bpm
+
+
+def _parse_target_bpm(data):
+    """
+    Liest 'target_bpm' aus dem Request-Body.
+    Gibt None zurück, wenn kein/ungültiger Wert (→ kein Stretch),
+    sonst den auf [140, 165] begrenzten Float.
+    """
+    tb = (data or {}).get("target_bpm")
+    if tb in (None, "", 0, "0", False):
+        return None
+    try:
+        tb = float(tb)
+    except (TypeError, ValueError):
+        return None
+    if tb <= 0:
+        return None
+    return max(TARGET_BPM_MIN, min(TARGET_BPM_MAX, tb))
+
+
+def _single_video_speed(video_path, target_bpm):
+    """Stretch-Faktor für ein einzelnes Video (für Einzel-/Batch-Export)."""
+    if not target_bpm:
+        return 1.0
+    src = _match_octave(_get_source_bpm(video_path), target_bpm)
+    if not src or src <= 0:
+        return 1.0
+    return round(max(0.5, min(2.0, target_bpm / src)), 6)
+
+
+def _apply_target_bpm(clips, target_bpm):
+    """
+    Setzt clip['speed'] für jeden Clip einer (Multi-Video-)Montage.
+    No-op wenn target_bpm None ist. Nutzt die pro Video erkannte BPM,
+    oktav-normalisiert, sodass jeder Clip auf die Ziel-BPM kommt.
+    """
+    if not target_bpm:
+        return
+    for c in clips:
+        c["speed"] = _single_video_speed(c.get("video_path", ""), target_bpm)
+
+
+def _sanitize_video_filename(filename):
+    """
+    Schützt gegen Path-Traversal-Angriffe.
+    Gibt den bereinigten Dateinamen zurück, oder None bei ungültigem Input.
+    - Entfernt alle Verzeichnis-Komponenten (z.B. '../', '/')
+    - Erlaubt nur Dateierweiterungen aus SUPPORTED_EXTENSIONS
+    """
+    safe = os.path.basename(filename)
+    if not safe:
+        return None
+    ext = os.path.splitext(safe)[1].lower()
+    if ext not in {e.lower() for e in config.SUPPORTED_EXTENSIONS}:
+        return None
+    return safe
+
+
+# ========================
+# STATIC / FRONTEND
+# ========================
+
+@app.route("/")
+def index():
+    return send_from_directory("static", "index.html")
+
+
+# ========================
+# VIDEO LISTING
+# ========================
+
+@app.route("/api/videos")
+def list_videos():
+    """Listet alle Videos im Quellordner."""
+    videos = []
+    for f in os.listdir(config.VIDEO_SOURCE_DIR):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in {e.lower() for e in config.SUPPORTED_EXTENSIONS}:
+            # Punkt-Dateien (._xxx) überspringen
+            if f.startswith("._"):
+                continue
+            filepath = os.path.join(config.VIDEO_SOURCE_DIR, f)
+            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+
+            # Thumbnail wird on-the-fly generiert
+            has_thumb = True
+
+            # Prüfe ob bereits analysiert
+            is_analyzed = f in analysis_cache
+
+            videos.append({
+                "filename": f,
+                "size_mb": round(size_mb, 1),
+                "has_thumbnail": has_thumb,
+                "is_analyzed": is_analyzed,
+                "usage_count": global_usage_log.get(f, 0)
+            })
+
+    # Nach Größe sortieren (größte zuerst)
+    videos.sort(key=lambda v: v["size_mb"], reverse=True)
+
+    return jsonify({"videos": videos, "count": len(videos)})
+
+
+# ========================
+# THUMBNAILS & VIDEO STREAMING
+# ========================
+
+@app.route("/api/thumbnail/<filename>")
+def get_thumbnail(filename):
+    """Liefert das Thumbnail eines Videos. Generiert es via FFmpeg, falls nicht vorhanden."""
+    filename = _sanitize_video_filename(filename)
+    if not filename:
+        return jsonify({"error": "Ungültiger Dateiname"}), 400
+    basename = os.path.splitext(filename)[0]
+    thumb_path = os.path.join(config.THUMBNAILS_DIR, f"{basename}.jpg")
+
+    if not os.path.exists(thumb_path):
+        from analyzer.video_analyzer import _generate_thumbnail
+        filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+        if os.path.exists(filepath):
+            _generate_thumbnail(filepath)
+
+    if os.path.exists(thumb_path):
+        return send_file(thumb_path, mimetype="image/jpeg")
+    return jsonify({"error": "Thumbnail nicht gefunden"}), 404
+
+
+@app.route("/api/video/<filename>")
+def stream_video(filename):
+    """Streamt ein Video-File."""
+    filename = _sanitize_video_filename(filename)
+    if not filename:
+        return jsonify({"error": "Ungültiger Dateiname"}), 400
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    # Range-Request Support für Video-Streaming
+    file_size = os.path.getsize(filepath)
+    range_header = request.headers.get("Range")
+
+    if range_header:
+        byte1, byte2 = 0, None
+        match = range_header.replace("bytes=", "").split("-")
+        byte1 = int(match[0])
+        if match[1]:
+            byte2 = int(match[1])
+        else:
+            byte2 = file_size - 1
+
+        length = byte2 - byte1 + 1
+
+        with open(filepath, "rb") as f:
+            f.seek(byte1)
+            data = f.read(length)
+
+        resp = Response(data, 206, mimetype="video/mp4",
+                        direct_passthrough=True)
+        resp.headers.add("Content-Range", f"bytes {byte1}-{byte2}/{file_size}")
+        resp.headers.add("Accept-Ranges", "bytes")
+        resp.headers.add("Content-Length", str(length))
+        return resp
+
+    return send_file(filepath, mimetype="video/mp4")
+
+
+@app.route("/api/output/<path:filepath>")
+def serve_output(filepath):
+    """Serviert exportierte Dateien aus dem Output-Ordner."""
+    full_path = os.path.join(config.OUTPUT_DIR, filepath)
+    if not os.path.exists(full_path):
+        return jsonify({"error": "Datei nicht gefunden"}), 404
+    return send_file(full_path)
+
+
+# ========================
+# ANALYSE
+# ========================
+
+@app.route("/api/analyze/<filename>", methods=["POST"])
+def start_analysis(filename):
+    """Startet die Analyse-Pipeline für ein Video."""
+    filename = _sanitize_video_filename(filename)
+    if not filename:
+        return jsonify({"error": "Ungültiger Dateiname"}), 400
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    # Bereits in Arbeit?
+    if filename in analysis_jobs and analysis_jobs[filename]["status"] == "running":
+        return jsonify({"status": "already_running", "progress": analysis_jobs[filename]})
+
+    # Job starten
+    analysis_jobs[filename] = {
+        "status": "running",
+        "progress": 0,
+        "stage": "starting",
+        "message": "Analyse wird gestartet...",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(target=_run_analysis, args=(filename, filepath))
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "filename": filename})
+
+@app.route("/api/analyze/all", methods=["POST"])
+def start_batch_analysis():
+    """Startet die Analyse für alle noch nicht analysierten Videos."""
+    started = []
+    for f in os.listdir(config.VIDEO_SOURCE_DIR):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in {e.lower() for e in config.SUPPORTED_EXTENSIONS}:
+            if f.startswith("._"):
+                continue
+            
+            # Nur wenn noch nicht analysiert und nicht gerade läuft
+            is_analyzed = f in analysis_cache or os.path.exists(
+                os.path.join(config.OUTPUT_DIR, f"{os.path.splitext(f)[0]}_analysis.json")
+            )
+            is_running = f in analysis_jobs and analysis_jobs[f]["status"] == "running"
+            
+            if not is_analyzed and not is_running:
+                # Analyse starten
+                filepath = os.path.join(config.VIDEO_SOURCE_DIR, f)
+                analysis_jobs[f] = {
+                    "status": "running",
+                    "progress": 0,
+                    "stage": "queued",
+                    "message": "In Warteschlange...",
+                    "started_at": time.time(),
+                }
+                thread = threading.Thread(target=_run_analysis, args=(f, filepath))
+                thread.daemon = True
+                thread.start()
+                started.append(f)
+                
+    return jsonify({"status": "started", "count": len(started), "videos": started})
+
+
+def _run_analysis(filename, filepath):
+    """Führt die Analyse-Pipeline in einem Hintergrund-Thread aus."""
+    # Lazy imports um Startup schnell zu halten
+    from analyzer.audio_analyzer import analyze_audio
+    from analyzer.video_analyzer import analyze_video
+    from analyzer.highlight_engine import compute_highlights
+
+    def progress_cb(stage, pct, message):
+        # Gesamt-Fortschritt: Audio 0-40%, Video 40-80%, Highlights 80-100%
+        if stage == "audio":
+            overall = int(pct * 0.4)
+        elif stage == "video":
+            overall = 40 + int(pct * 0.4)
+        else:
+            overall = 80 + int(pct * 0.2)
+
+        analysis_jobs[filename].update({
+            "progress": overall,
+            "stage": stage,
+            "message": message,
+        })
+
+    # Auf freien Analyse-Slot warten (max. 3 parallele Analysen)
+    # Weitere Threads werden erstellt, blockieren hier bis ein Slot frei wird.
+    analysis_jobs[filename].update({"stage": "queued", "message": "Warte auf freien Slot..."})
+    with _analysis_semaphore:
+        analysis_jobs[filename].update({"stage": "starting", "message": "Analyse wird gestartet..."})
+
+        try:
+            # 1. Audio-Analyse
+            audio_results = analyze_audio(filepath, progress_callback=progress_cb)
+
+            # 2. Video-Analyse
+            video_results = analyze_video(filepath, progress_callback=progress_cb)
+
+            # 3. Highlight Scoring
+            progress_cb("highlights", 0, "Highlights werden berechnet...")
+            highlight_results = compute_highlights(audio_results, video_results)
+            progress_cb("highlights", 100, "Fertig!")
+
+            # Ergebnisse zusammenführen
+            full_results = {
+                "filename": filename,
+                "audio": audio_results,
+                "video": {
+                    "scene_changes": video_results["scene_changes"],
+                    "motion_summary": {
+                        "total_points": len(video_results["motion_intensity"]),
+                        "avg_motion": (
+                            sum(m["intensity"] for m in video_results["motion_intensity"]) /
+                            max(len(video_results["motion_intensity"]), 1)
+                        ),
+                    },
+                    "light_effects_count": len(video_results["light_effects"]),
+                    "resolution": video_results["resolution"],
+                    "fps": video_results["fps"],
+                    "duration": video_results["duration"],
+                },
+                "highlights": highlight_results["highlights"],
+                "timeline": highlight_results["timeline"],
+                "suggested_clips": highlight_results["suggested_clips"],
+            }
+
+            # Cache speichern
+            analysis_cache[filename] = full_results
+
+            # Auch als JSON auf Disk speichern
+            results_path = os.path.join(
+                config.OUTPUT_DIR,
+                f"{os.path.splitext(filename)[0]}_analysis.json"
+            )
+            with open(results_path, "w", encoding="utf-8") as f:
+                json.dump(full_results, f, indent=2, ensure_ascii=False)
+
+            analysis_jobs[filename].update({
+                "status": "completed",
+                "progress": 100,
+                "stage": "done",
+                "message": "Analyse abgeschlossen!",
+                "completed_at": time.time(),
+            })
+
+        except Exception as e:
+            analysis_jobs[filename].update({
+                "status": "error",
+                "message": f"Fehler: {str(e)}",
+                "stage": "error",
+            })
+            import traceback
+            traceback.print_exc()
+
+
+@app.route("/api/status/<filename>")
+def get_status(filename):
+    """Gibt den aktuellen Analyse-Status zurück."""
+    if filename in analysis_jobs:
+        return jsonify(analysis_jobs[filename])
+    return jsonify({"status": "not_started"})
+
+
+@app.route("/api/results/<filename>")
+def get_results(filename):
+    """Gibt die Analyse-Ergebnisse zurück."""
+    if filename in analysis_cache:
+        return jsonify(analysis_cache[filename])
+
+    # Versuche von Disk zu laden
+    results_path = os.path.join(
+        config.OUTPUT_DIR,
+        f"{os.path.splitext(filename)[0]}_analysis.json"
+    )
+    if os.path.exists(results_path):
+        with open(results_path, "r", encoding="utf-8") as f:
+            results = json.load(f)
+        analysis_cache[filename] = results
+        return jsonify(results)
+
+    return jsonify({"error": "Keine Ergebnisse gefunden"}), 404
+
+
+# ========================
+# EXPORT
+# ========================
+
+@app.route("/api/export", methods=["POST"])
+def export_clips():
+    """Startet den Export von ausgewählten Clips im Hintergrund."""
+    from analyzer.clip_exporter import export_batch
+
+    data = request.json
+    filename = data.get("filename")
+    clips = data.get("clips", [])
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    fade = data.get("fade", True)
+
+    if not filename or not clips:
+        return jsonify({"error": "filename und clips sind erforderlich"}), 400
+
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    # Job-ID generieren
+    job_id = f"export_{int(time.time())}_{filename}"
+    
+    # Clip-Namen generieren falls nicht vorhanden
+    base = os.path.splitext(filename)[0]
+    for i, clip in enumerate(clips):
+        if "name" not in clip:
+            clip["name"] = f"{base}_{mode}_{i + 1:03d}"
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    sp = _single_video_speed(filepath, target_bpm)
+    if sp != 1.0:
+        for clip in clips:
+            clip["speed"] = sp
+
+    # Job initialisieren
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Export von {len(clips)} Clips gestartet...",
+        "filename": filename,
+        "count": len(clips),
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_export_batch, 
+        args=(job_id, filepath, clips, mode, fade)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+def _run_export_batch(job_id, filepath, clips, mode, fade):
+    """Hintergrund-Thread für Batch-Export."""
+    from analyzer.clip_exporter import export_batch
+
+    def progress_cb(stage, pct, message):
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "progress": pct,
+                "message": message
+            })
+
+    try:
+        results = export_batch(
+            filepath, clips, mode=mode, fade=fade, 
+            progress_callback=progress_cb
+        )
+        
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "status": "completed",
+                "progress": 100,
+                "message": "Export erfolgreich abgeschlossen!",
+                "results": results,
+                "completed_at": time.time(),
+            })
+    except Exception as e:
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "status": "error",
+                "message": f"Export fehlgeschlagen: {str(e)}",
+            })
+        import traceback
+        traceback.print_exc()
+
+
+@app.route("/api/export/montage", methods=["POST"])
+def export_montage_endpoint():
+    """Startet die Erstellung einer Montage im Hintergrund."""
+    data = request.json
+    filename = data.get("filename")
+    clips = data.get("clips", [])
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    fade = data.get("fade", True)
+
+    if not filename or not clips:
+        return jsonify({"error": "filename und clips sind erforderlich"}), 400
+
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    # Job-ID generieren
+    job_id = f"montage_{int(time.time())}_{filename}"
+    
+    # Montage-Name
+    base = os.path.splitext(filename)[0]
+    output_name = f"{base}_montage_{int(time.time())}"
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    sp = _single_video_speed(filepath, target_bpm)
+    if sp != 1.0:
+        for clip in clips:
+            clip["speed"] = sp
+
+    # Job initialisieren
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Montage aus {len(clips)} Clips wird erstellt...",
+        "filename": filename,
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_montage_task, 
+        args=(job_id, filepath, clips, output_name, mode, fade)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+def _run_montage_task(job_id, filepath, clips, output_name, mode, fade):
+    """Hintergrund-Thread für Montage-Erstellung."""
+    from analyzer.clip_exporter import export_montage
+
+    def progress_cb(stage, pct, message):
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "progress": pct,
+                "message": message
+            })
+
+    try:
+        # v_path zum Clip-Dict hinzufügen für den Exporter
+        for c in clips:
+            c["video_path"] = filepath
+
+        result = export_montage(
+            clips, output_name, mode=mode, fade=fade, 
+            progress_callback=progress_cb
+        )
+        
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "status": "completed",
+                "progress": 100,
+                "message": "Montage erfolgreich erstellt!",
+                "results": [result], # Als Liste für Kompatibilität mit UI
+                "completed_at": time.time(),
+            })
+    except Exception as e:
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "status": "error",
+                "message": f"Montage fehlgeschlagen: {str(e)}",
+            })
+        import traceback
+        traceback.print_exc()
+
+
+# ── SMART PICK: intelligente, variable Clip-Auswahl fürs Editor Set ──
+def _score_tier(score):
+    """S/A/B/C-Tier (gleiche Schwellen wie das Frontend)."""
+    if score >= 0.90: return "S"
+    if score >= 0.75: return "A"
+    if score >= 0.50: return "B"
+    return "C"
+
+
+def _length_bucket(duration):
+    """Grobe Längen-Kategorie für den Längen-Mix."""
+    if duration <= 2.5: return "short"
+    if duration <= 4.0: return "mid"
+    return "long"
+
+
+def _classify_clip(clip, res):
+    """
+    Bestimmt den Moment-Typ eines Clips aus den vorhandenen Analyse-Daten.
+    Priorität: DROP > BUILDUP > CROWD > (STROBE / HYPE / CALM aus Timeline).
+    """
+    s, e = clip["start"], clip["end"]
+    audio = res.get("audio", {})
+
+    # 1. DROP – ein Bass-Drop liegt im Clip-Fenster
+    for d in audio.get("bass_drops", []):
+        if s <= d.get("time", -1) <= e:
+            return "DROP"
+    # 2. BUILDUP – Clip überlappt einen Buildup
+    for bu in audio.get("buildups", []):
+        if s < bu.get("end", 0) and e > bu.get("start", 0):
+            return "BUILDUP"
+    # 3. CROWD – Clip startet kurz nach einem Drop (Reaktion / Kamera-Schnitt)
+    for d in audio.get("bass_drops", []):
+        if 0.3 <= (s - d.get("time", 0)) <= 7.0:
+            return "CROWD"
+    # 4. Charakter aus gemittelten Timeline-Komponenten im Clip-Fenster
+    comps = [t["components"] for t in res.get("timeline", [])
+             if "components" in t and s <= t.get("time", -1) <= e]
+    if comps:
+        n = len(comps)
+        lights = sum(c.get("lights", 0)       for c in comps) / n
+        scenes = sum(c.get("scenes", 0)       for c in comps) / n
+        motion = sum(c.get("motion", 0)       for c in comps) / n
+        energy = sum(c.get("audio_energy", 0) for c in comps) / n
+        if lights > 0.45 or scenes > 0.5:
+            return "STROBE"
+        if motion > 0.5 and energy > 0.5:
+            return "HYPE"
+        if motion < 0.3 and energy < 0.35:
+            return "CALM"
+        return "HYPE" if (motion + energy) >= 1.0 else "CALM"
+    return "HYPE"
+
+
+@app.route("/api/export/best_of_set", methods=["POST"])
+def export_best_of_set():
+    """
+    Editor Set: Einzelclips aller Videos, ausgewählt per SMART PICK
+    (Moment-Typ-Quoten, Quellen-Spread, Längen-Mix, visuelle Dedup,
+    gewichtetes Sampling → frisches Set bei jedem Lauf).
+    Auswahl + Dedup (FFmpeg) laufen im Hintergrund-Thread.
+    """
+    data = request.json
+    count = data.get("count", 30)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    # Kandidaten sammeln + anreichern (schnell, kein FFmpeg)
+    all_clips = []
+    for f in os.listdir(config.OUTPUT_DIR):
+        if not f.endswith("_analysis.json"):
+            continue
+        video_name = f.replace("_analysis.json", "")
+        v_path = None
+        for ext in config.SUPPORTED_EXTENSIONS:
+            p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+            if os.path.exists(p):
+                v_path = p
+                break
+        if not v_path:
+            continue
+
+        with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+            res = json.load(j)
+
+        usage = global_usage_log.get(os.path.basename(v_path), 0)
+        rot = 0.8 ** usage   # Rotations-Gewichtung
+        for c in res.get("suggested_clips", []):
+            c = dict(c)
+            c["video_path"]    = v_path
+            c["video_name"]    = video_name
+            c["moment_type"]   = _classify_clip(c, res)
+            c["tier"]          = _score_tier(c.get("score", 0))
+            c["length_bucket"] = _length_bucket(c.get("duration", 0))
+            c["base_weight"]   = max(c.get("score", 0) * rot, 1e-4)
+            all_clips.append(c)
+
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+
+    job_id = f"set_{int(time.time())}"
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"SMART PICK: {len(all_clips)} Kandidaten werden ausgewertet...",
+        "filename": "MULTI_SET",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_set_export_task,
+        args=(job_id, all_clips, count, mode, target_bpm)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+def _smart_pick(all_clips, count, progress=None):
+    """
+    Wählt bis zu `count` Clips per gewichtetem Sampling mit Diversitäts-Penalty.
+    Gewicht je Clip = base_weight (Score×Rotation) × Penalty für bereits oft
+    gewählten Moment-Typ / dieselbe Quelle / dieselbe Länge → das Set wird
+    automatisch vielfältig, bleibt aber qualitativ hoch und ist jedes Mal frisch.
+    Harte Constraints: max. Clips pro Video, keine Zeitüberlappung, visuelle
+    Dedup (dHash). 1 s Handles werden hier auf start/end gesetzt.
+    """
+    import random
+    from collections import defaultdict
+    from analyzer.frame_hasher import dhash, hamming
+
+    PADDING = 1.0
+    num_videos = len({c["video_name"] for c in all_clips}) or 1
+    max_per_video = max(2, -(-count // num_videos) + 1)   # ceil(count/videos) + Puffer
+
+    type_count   = defaultdict(int)
+    source_count = defaultdict(int)
+    length_count = defaultdict(int)
+    video_intervals = defaultdict(list)
+    accepted_hashes = []
+    selected = []
+
+    pool = list(all_clips)
+    while pool and len(selected) < count:
+        weights = []
+        for c in pool:
+            w = c["base_weight"]
+            w *= 0.5  ** type_count[c["moment_type"]]
+            w *= 0.45 ** source_count[c["video_name"]]
+            w *= 0.8  ** length_count[c["length_bucket"]]
+            weights.append(max(w, 1e-9))
+
+        pick = random.choices(pool, weights=weights, k=1)[0]
+        pool.remove(pick)
+
+        # Quellen-Obergrenze
+        if source_count[pick["video_name"]] >= max_per_video:
+            continue
+
+        # Zeit-Überlappung im selben Video (inkl. Handles)
+        v = pick["video_path"]
+        s_h = max(0.0, pick["start"] - PADDING)
+        e_h = pick["end"] + PADDING
+        if any(s_h < ee and e_h > ss for ss, ee in video_intervals[v]):
+            continue
+
+        # Visuelle Dedup – ein Frame aus der Clip-Mitte gehasht
+        h = dhash(pick["video_path"], (pick["start"] + pick["end"]) / 2.0)
+        if h is not None and any(hamming(h, ah) <= 6 for ah in accepted_hashes):
+            continue
+
+        pick = dict(pick)
+        pick["start"] = s_h
+        pick["end"]   = e_h
+        selected.append(pick)
+        video_intervals[v].append((s_h, e_h))
+        type_count[pick["moment_type"]]     += 1
+        source_count[pick["video_name"]]    += 1
+        length_count[pick["length_bucket"]] += 1
+        if h is not None:
+            accepted_hashes.append(h)
+        if progress:
+            progress(len(selected))
+
+    return selected
+
+
+def _run_set_export_task(job_id, all_clips, count, mode, target_bpm=None):
+    """Hintergrund-Thread: SMART PICK + Export der Einzelclips."""
+    from collections import Counter
+    from analyzer.clip_exporter import export_clip
+
+    set_folder_name = job_id.replace("set_", "Set_")
+    set_output_dir = os.path.join(config.EDITOR_SETS_DIR, set_folder_name)
+    os.makedirs(set_output_dir, exist_ok=True)
+
+    try:
+        def _pick_progress(n):
+            if job_id in export_jobs:
+                export_jobs[job_id].update({
+                    "message": f"SMART PICK: {n}/{count} Clips ausgewählt..."
+                })
+
+        selected = _smart_pick(all_clips, count, progress=_pick_progress)
+
+        if not selected:
+            if job_id in export_jobs:
+                export_jobs[job_id].update({
+                    "status": "error",
+                    "message": "SMART PICK fand keine passenden Clips.",
+                })
+            return
+
+        # Bestes zuerst (bestimmt die Nummerierung der Dateinamen)
+        selected.sort(key=lambda c: c.get("score", 0), reverse=True)
+
+        # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+        _apply_target_bpm(selected, target_bpm)
+
+        # Rotation-Log aktualisieren (greift auch fürs Editor Set)
+        for vn in {os.path.basename(c["video_path"]) for c in selected}:
+            global_usage_log[vn] = global_usage_log.get(vn, 0) + 1
+        save_usage_log()
+
+        total = len(selected)
+        results = []
+        for i, clip in enumerate(selected):
+            if job_id not in export_jobs:
+                break
+            export_jobs[job_id].update({
+                "progress": int((i / total) * 100),
+                "message": f"Export {i+1}/{total}: {clip['moment_type']} · {clip['video_name']}...",
+            })
+            # Name: 01_DROP_S_150BPM_<quelle>_<start>s
+            # → Typ, Tier und (falls Tempo-Match aktiv) die Ziel-BPM im Media-Browser sichtbar
+            bpm_tag = f"_{int(target_bpm)}BPM" if target_bpm else ""
+            out_name = f"{i+1:02d}_{clip['moment_type']}_{clip['tier']}{bpm_tag}_{clip['video_name']}_{int(clip['start'])}s"
+            res = export_clip(
+                clip["video_path"], clip["start"], clip["end"],
+                out_name, mode=mode, fade=False,   # kein Fade für manuellen Schnitt
+                output_dir=set_output_dir,
+                speed=clip.get("speed", 1.0),
+            )
+            res["status"]      = "success"
+            res["moment_type"] = clip["moment_type"]
+            res["tier"]        = clip["tier"]
+            results.append(res)
+
+        if job_id in export_jobs:
+            mix = " · ".join(f"{n}x{t}" for t, n in
+                             Counter(c["moment_type"] for c in selected).most_common())
+            export_jobs[job_id].update({
+                "status": "completed",
+                "progress": 100,
+                "message": f"Editor Set fertig: {len(results)} Clips - {mix}",
+                "results": results,
+                "completed_at": time.time(),
+            })
+    except Exception as e:
+        if job_id in export_jobs:
+            export_jobs[job_id].update({"status": "error", "message": str(e)})
+        import traceback
+        traceback.print_exc()
+
+
+@app.route("/api/export/global_best_of", methods=["POST"])
+def export_global_best_of():
+    """Erstellt eine Montage aus den besten Clips ALLER analysierten Videos."""
+    data = request.json
+    target_duration = data.get("duration", 30)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    
+    # Alle Analyse-Dateien finden
+    all_clips = []
+    analyzed_videos = {}
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            # Original-Video Pfad finden
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                analyzed_videos[v_path] = res
+                for c in res.get("suggested_clips", []):
+                    # Nur kurze Clips für Transition-Montage
+                    if c["duration"] <= 3:
+                        c["video_path"] = v_path
+                        all_clips.append(c)
+    
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+        
+    # Gewichtung anpassen: Bereits verwendete Videos werden bestraft
+    for c in all_clips:
+        v_name = os.path.basename(c["video_path"])
+        usage = global_usage_log.get(v_name, 0)
+        # 20% Abzug pro Verwendung, um Rotation zu erzwingen
+        penalty = 0.8 ** usage 
+        c["weighted_score"] = c["score"] * penalty
+
+    # Sortieren nach gewichtetem Score
+    all_clips.sort(key=lambda x: x["weighted_score"], reverse=True)
+    
+    # Top-Clips auswählen (ohne Überlappung innerhalb des gleichen Videos)
+    selected = []
+    current_dur = 0
+    video_usage = {} # video -> list of intervals
+    used_video_names = set()
+    
+    for c in all_clips:
+        if current_dur >= target_duration: break
+        
+        v = c["video_path"]
+        v_name = os.path.basename(v)
+        if v not in video_usage: video_usage[v] = []
+        
+        # Überlappung prüfen
+        overlap = False
+        for start, end in video_usage[v]:
+            if c["start"] < end and c["end"] > start:
+                overlap = True
+                break
+        
+        if not overlap:
+            selected.append(c)
+            video_usage[v].append((c["start"], c["end"]))
+            current_dur += c["duration"]
+            used_video_names.add(v_name)
+
+    # Money Shot Lock: Besten Clip an ~70 %-Position setzen
+    selected = _apply_money_shot_lock(selected)
+
+    # Burst-Pause: Buildup in Wellen restrukturieren (Burst → Pause → Burst → …)
+    selected = _apply_burst_pause(selected)
+
+    # Contrast Injection: Atemmoment direkt vor dem Money Shot
+    n_inj    = max(1, target_duration // 15)
+    selected = _inject_contrast(selected, analyzed_videos, max_injections=n_inj)
+
+    # Re-Hook Loop: ersten Clip kurz am Ende wiederholen → nahtloser Social-Media-Loop
+    selected = _apply_rehook_loop(selected)
+
+    # Job starten
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"global_best_{int(time.time())}"
+    output_name = f"GLOBAL_BEST_OF_{target_duration}s_{int(time.time())}"
+    
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Global Best-Of ({len(selected)} Clips) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode, used_video_names),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+def _run_global_montage_task(job_id, clips, output_name, mode, used_video_names=None, dedup=False):
+    """Hintergrund-Thread für Global Montage."""
+    from analyzer.clip_exporter import export_montage
+
+    # Thread registrieren + Cancel-Event anlegen
+    _job_threads[job_id] = threading.get_ident()
+    cancel_event = threading.Event()
+    _cancel_events[job_id] = cancel_event
+
+    # Erwarteten Output-Pfad vormerken (für Datei-Löschung bei Cancel)
+    expected_output = os.path.join(config.BEST_OF_DIR, f"{output_name}.mp4")
+    if job_id in export_jobs:
+        export_jobs[job_id]["output_path"] = expected_output
+
+    def progress_cb(stage, pct, message):
+        if job_id in export_jobs:
+            export_jobs[job_id].update({"progress": pct, "message": message})
+
+    try:
+        # Duplicate-Frame-Detection: visuell ähnliche Clips herausfiltern.
+        # Re-Hook-Clips (is_rehook=True) werden vom Dedup ausgenommen —
+        # sie sind bewusste Wiederholungen des ersten Clips für den Loop-Effekt.
+        if dedup and clips:
+            if job_id in export_jobs:
+                export_jobs[job_id].update({
+                    "message": f"Duplikate werden geprüft ({len(clips)} Clips)..."
+                })
+            from analyzer.frame_hasher import filter_duplicates
+            rehook_clips  = [c for c in clips if c.get("is_rehook")]
+            normal_clips  = [c for c in clips if not c.get("is_rehook")]
+            before        = len(normal_clips)
+            normal_clips  = filter_duplicates(normal_clips)
+            removed       = before - len(normal_clips)
+            clips         = normal_clips + rehook_clips   # Re-Hook immer am Ende
+            if job_id in export_jobs:
+                export_jobs[job_id].update({
+                    "message": f"{len(clips)} Clips ({removed} Duplikate entfernt) – Export startet..."
+                })
+
+        result = export_montage(
+            clips, output_name, mode=mode, fade=True,
+            progress_callback=progress_cb,
+            cancel_event=cancel_event,
+        )
+        if cancel_event.is_set():
+            return  # already handled by cancel_export()
+        if job_id in export_jobs:
+            export_jobs[job_id].update({
+                "status": "completed",
+                "progress": 100,
+                "message": "Global Best-Of fertig!",
+                "results": [result],
+                "completed_at": time.time(),
+            })
+        if used_video_names:
+            for vn in used_video_names:
+                global_usage_log[vn] = global_usage_log.get(vn, 0) + 1
+            save_usage_log()
+    except Exception as e:
+        if cancel_event.is_set():
+            return  # cancel_export() already set status to cancelled
+        if job_id in export_jobs:
+            export_jobs[job_id].update({"status": "error", "message": str(e)})
+    finally:
+        _job_threads.pop(job_id, None)
+        _cancel_events.pop(job_id, None)
+
+
+@app.route("/api/export/highlight_reel", methods=["POST"])
+def export_highlight_reel():
+    """Erstellt ein Highlight Arc Reel mit Energie-Aufbau."""
+    data = request.json
+    target_duration = data.get("duration", 15)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    # Alle Analyse-Dateien finden (nur sehr kurze Clips für schnelle Schnitte)
+    all_clips = []
+    analyzed_videos = {}
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                analyzed_videos[v_path] = res
+                for c in res.get("suggested_clips", []):
+                    if c["duration"] <= 3:
+                        c["video_path"] = v_path
+                        all_clips.append(c)
+
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+
+    # Pacing Parameter
+    if target_duration <= 15:
+        climax_dur = 6
+    elif target_duration <= 30:
+        climax_dur = 10
+    else:
+        climax_dur = 15
+    buildup_dur = target_duration - climax_dur
+
+    # Sortieren nach Score (Energie)
+    all_clips.sort(key=lambda x: x["score"], reverse=True)
+
+    video_usage = {}
+    def check_overlap(c):
+        v = c["video_path"]
+        if v not in video_usage: return False
+        for start, end in video_usage[v]:
+            if c["start"] < end and c["end"] > start:
+                return True
+        return False
+
+    def add_usage(c):
+        v = c["video_path"]
+        if v not in video_usage: video_usage[v] = []
+        video_usage[v].append((c["start"], c["end"]))
+
+    # 1. Climax-Clips füllen (Die absolut besten Momente)
+    climax_clips = []
+    current_climax = 0
+    remaining_clips = []
+
+    for c in all_clips:
+        if current_climax < climax_dur:
+            if not check_overlap(c):
+                climax_clips.append(c)
+                add_usage(c)
+                current_climax += c["duration"]
+        else:
+            remaining_clips.append(c)
+
+    # 2. Buildup-Clips füllen (Die nächstbesten Momente)
+    buildup_clips = []
+    current_buildup = 0
+    for c in remaining_clips:
+        if current_buildup < buildup_dur:
+            if not check_overlap(c):
+                buildup_clips.append(c)
+                add_usage(c)
+                current_buildup += c["duration"]
+
+    # 3. Buildup aufsteigend sortieren (Spannungsaufbau)
+    buildup_clips.sort(key=lambda x: x["score"], reverse=False)
+
+    # 4. Sequenz zusammenfügen
+    selected = buildup_clips + climax_clips
+
+    # Money Shot Lock: Besten Clip an ~70 %-Position setzen
+    selected = _apply_money_shot_lock(selected)
+
+    # Burst-Pause: Buildup in Wellen restrukturieren (Burst → Pause → Burst → …)
+    selected = _apply_burst_pause(selected)
+
+    # Contrast Injection: Atemmoment direkt vor dem Money Shot
+    n_inj    = max(1, target_duration // 15)
+    selected = _inject_contrast(selected, analyzed_videos, max_injections=n_inj)
+
+    # Re-Hook Loop: ersten Clip kurz am Ende wiederholen → nahtloser Social-Media-Loop
+    selected = _apply_rehook_loop(selected)
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"highlight_{target_duration}s_{int(time.time())}"
+    output_name = f"HIGHLIGHT_ARC_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Highlight Arc ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+@app.route("/api/export/chronological_reel", methods=["POST"])
+def export_chronological_reel():
+    """Erstellt eine Montage in chronologischer Reihenfolge der Videos."""
+    data = request.json
+    target_duration = data.get("duration", 30)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    # ── Clips pro Video sammeln ─────────────────────────────────────────
+    # key: v_path → {"creation_time": float, "clips": [...]}
+    videos = {}
+    for f in os.listdir(config.OUTPUT_DIR):
+        if not f.endswith("_analysis.json"):
+            continue
+        video_name = f.replace("_analysis.json", "")
+        v_path = None
+        for ext in config.SUPPORTED_EXTENSIONS:
+            p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+            if os.path.exists(p):
+                v_path = p
+                break
+        if not v_path:
+            continue
+
+        creation_time = _get_video_creation_time(v_path)
+
+        with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+            res = json.load(j)
+
+        clips = [
+            {**c, "video_path": v_path, "creation_time": creation_time}
+            for c in res.get("suggested_clips", [])
+            if c["duration"] <= 3
+        ]
+        if clips:
+            videos[v_path] = {"creation_time": creation_time, "clips": clips}
+
+    if not videos:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+
+    # ── Videos chronologisch sortieren ─────────────────────────────────
+    sorted_paths = sorted(videos, key=lambda v: videos[v]["creation_time"])
+
+    def best_clip(v_path):
+        """Bester Clip (höchster Score) eines Videos."""
+        return max(videos[v_path]["clips"], key=lambda c: c["score"])
+
+    # ── Anker: ältestes & neuestes Video ───────────────────────────────
+    anchor_start = best_clip(sorted_paths[0])
+    anchor_end   = best_clip(sorted_paths[-1])
+
+    # ── Mittelclips: alle anderen Videos, sortiert nach höchstem Tier ──
+    # Aus jedem Video nur den besten Clip nehmen, dann nach Score sortieren
+    middle_candidates = []
+    middle_paths = sorted_paths[1:-1] if len(sorted_paths) > 2 else []
+
+    for v in middle_paths:
+        middle_candidates.append(best_clip(v))
+
+    # Highest Tier first (Score absteigend)
+    middle_candidates.sort(key=lambda c: c["score"], reverse=True)
+
+    # Budget = Zieldauer minus die beiden Anker
+    budget = target_duration - anchor_start["duration"] - anchor_end["duration"]
+
+    selected_middle = []
+    used_dur = 0
+    for c in middle_candidates:
+        if used_dur >= budget:
+            break
+        selected_middle.append(c)
+        used_dur += c["duration"]
+
+    # ── Finale Sequenz: ältestes → Beste Mitte → Neuestes ──────────────
+    selected = [anchor_start] + selected_middle + [anchor_end]
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"chrono_{target_duration}s_{int(time.time())}"
+    output_name = f"CHRONO_ARC_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": (
+            f"Chrono Arc: {len(selected)} Clips "
+            f"({len(selected_middle)} Mittelclips nach Tier sortiert)"
+        ),
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        "status": "started",
+        "job_id": job_id,
+        "anchor_start": anchor_start["video_path"].split("\\")[-1],
+        "anchor_end":   anchor_end["video_path"].split("\\")[-1],
+        "middle_clips": len(selected_middle),
+    })
+
+
+@app.route("/api/export/random_reel", methods=["POST"])
+def export_random_reel():
+    """Erstellt eine Montage aus zufällig ausgewählten Clips."""
+    import random
+    data = request.json
+    target_duration = data.get("duration", 15)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    all_clips = []
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+            
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                for c in res.get("suggested_clips", []):
+                    # Für Random Reels nutzen wir auch eher kurze Clips (1-5s) für die Dynamik
+                    if c["duration"] <= 5:
+                        c["video_path"] = v_path
+                        all_clips.append(c)
+
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+
+    # Zufällig durchmischen
+    random.shuffle(all_clips)
+
+    selected = []
+    current_dur = 0
+    video_usage = {}
+    
+    for c in all_clips:
+        if current_dur >= target_duration: break
+        
+        v = c["video_path"]
+        if v not in video_usage: video_usage[v] = []
+        
+        # Überlappung prüfen
+        overlap = False
+        for start, end in video_usage[v]:
+            if c["start"] < end and c["end"] > start:
+                overlap = True
+                break
+        
+        if not overlap:
+            selected.append(c)
+            video_usage[v].append((c["start"], c["end"]))
+            current_dur += c["duration"]
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"random_{target_duration}s_{int(time.time())}"
+    output_name = f"RANDOM_ARC_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Zufälliges Reel ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+@app.route("/api/export/strobe_montage", methods=["POST"])
+def export_strobe_montage():
+    """Erstellt eine sehr schnelle Montage (harte Schnitte synchron auf jeden 2. oder 4. Beat) für High-Energy Strobe-Effekte."""
+    import random
+    data = request.json
+    target_duration = data.get("duration", 15)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    all_clips = []
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+            
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                beats = res.get("audio", {}).get("beat_times", [])
+                if not beats: continue
+                timeline = res.get("timeline", [])
+                
+                # Finde hoch-energetische Stellen (Lights > 0.2 oder Motion > 0.4)
+                valid_times = [t["time"] for t in timeline if t.get("components", {}).get("lights", 0) > 0.2 or t.get("components", {}).get("motion", 0) > 0.4]
+                
+                # Erstelle 2-Beat oder 4-Beat Clips
+                for i in range(len(beats) - 4):
+                    start = beats[i]
+                    end = beats[i+random.choice([2, 4])]
+                    
+                    # Prüfe ob dieser Abschnitt in einer energetischen Phase liegt
+                    if any(abs(start - vt) < 2.0 for vt in valid_times):
+                        all_clips.append({
+                            "video_path": v_path,
+                            "start": round(start, 3),
+                            "end": round(end, 3),
+                            "duration": round(end - start, 3),
+                            "score": 1.0  # Equal chance for all strobe clips
+                        })
+
+    if not all_clips:
+        return jsonify({"error": "Keine geeigneten Strobe/Beat-Clips gefunden"}), 404
+
+    random.shuffle(all_clips)
+
+    selected = []
+    current_dur = 0
+    video_usage = {}
+    
+    for c in all_clips:
+        if current_dur >= target_duration: break
+        v = c["video_path"]
+        if v not in video_usage: video_usage[v] = []
+        overlap = False
+        for start, end in video_usage[v]:
+            if c["start"] < end and c["end"] > start:
+                overlap = True
+                break
+        if not overlap:
+            selected.append(c)
+            video_usage[v].append((c["start"], c["end"]))
+            current_dur += c["duration"]
+
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"strobe_{target_duration}s_{int(time.time())}"
+    output_name = f"STROBE_MONTAGE_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Strobe Montage ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+@app.route("/api/export/crowd_culture", methods=["POST"])
+def export_crowd_culture():
+    """Erstellt eine Montage, die Crowd-Reaktionen (Jubel, Motion kurz nach Drop) in den Fokus stellt."""
+    import random
+    data = request.json
+    target_duration = data.get("duration", 15)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    all_clips = []
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+            
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                for c in res.get("suggested_clips", []):
+                    # "CROWD" Definition (0.3s - 7.0s nach einem Bass Drop)
+                    c_type = _classify_clip(c, res)
+                    if c_type == "CROWD" or c.get("components", {}).get("motion", 0) > 0.6:
+                        c_copy = dict(c)
+                        c_copy["video_path"] = v_path
+                        all_clips.append(c_copy)
+
+    if not all_clips:
+        return jsonify({"error": "Keine Crowd-Clips gefunden"}), 404
+
+    # Sortieren nach Score
+    all_clips.sort(key=lambda x: x["score"], reverse=True)
+
+    selected = []
+    current_dur = 0
+    video_usage = {}
+    
+    for c in all_clips:
+        if current_dur >= target_duration: break
+        v = c["video_path"]
+        if v not in video_usage: video_usage[v] = []
+        overlap = False
+        for start, end in video_usage[v]:
+            if c["start"] < end and c["end"] > start:
+                overlap = True
+                break
+        if not overlap:
+            selected.append(c)
+            video_usage[v].append((c["start"], c["end"]))
+            current_dur += c["duration"]
+
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"crowd_{target_duration}s_{int(time.time())}"
+    output_name = f"CROWD_CULTURE_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Crowd & Culture ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+def _snap_to_nearest_beat(time_sec, beat_times):
+    """Findet den nächsten Beat-Zeitpunkt in einer sortierten Liste."""
+    if not beat_times:
+        return time_sec
+    import bisect
+    idx = bisect.bisect_left(beat_times, time_sec)
+    candidates = []
+    if idx > 0:
+        candidates.append(beat_times[idx - 1])
+    if idx < len(beat_times):
+        candidates.append(beat_times[idx])
+    return min(candidates, key=lambda t: abs(t - time_sec))
+
+
+def _find_breath_clip(res: dict, v_path: str) -> dict | None:
+    """
+    Sucht den energieärmsten 1-Bar-Moment im Video — das ideale "Atemmoment"
+    vor einem Drop. Scannt die vollständige Timeline (nicht nur suggested_clips,
+    die nur Highlight-Regionen abdecken), sucht das tiefste Energietal in den
+    ersten 80 % des Videos und gibt einen beat-genauen 4-Beat-Clip zurück.
+    """
+    timeline   = res.get("timeline", [])
+    beat_times = res.get("audio", {}).get("beat_times", [])
+    bpm        = float(res.get("audio", {}).get("tempo", 120.0))
+    vid_dur    = float(res.get("audio", {}).get("duration", 0) or
+                       res.get("video", {}).get("duration", 0))
+
+    if not timeline or vid_dur < 3:
+        return None
+
+    beat_interval = 60.0 / max(bpm, 60.0)
+    search_end    = vid_dur * 0.80        # Outro ausschließen
+
+    # Energieärmsten Zeitpunkt in den ersten 80 % des Videos finden
+    candidates = [t for t in timeline if t["time"] <= search_end]
+    if not candidates:
+        return None
+    valley = min(candidates, key=lambda t: t["score"])
+
+    # 4 Beats ab dem Tal-Punkt, beide Enden auf Beat snappen
+    snap_start = _snap_to_nearest_beat(valley["time"], beat_times)
+    snap_end   = _snap_to_nearest_beat(snap_start + 4 * beat_interval, beat_times)
+
+    if snap_end > vid_dur or snap_end - snap_start < beat_interval:
+        return None
+
+    return {
+        "video_path":       v_path,
+        "start":            round(snap_start, 3),
+        "end":              round(snap_end, 3),
+        "duration":         round(snap_end - snap_start, 3),
+        "score":            round(valley["score"], 4),
+        "preset":           "breath",
+        "is_contrast_clip": True,
+    }
+
+
+def _inject_contrast(selected: list, analyzed_videos: dict,
+                     threshold_high: float = 0.72,
+                     max_injections: int = 2) -> list:
+    """
+    Injiziert kurze Low-Energy-Clips ("Atemmomente") direkt vor den
+    energiereichsten Clips der Auswahl — erzeugt den "Stille-vor-dem-Drop"-Effekt.
+
+    Reihenfolge: Erst dasselbe Video (Klang-Kontinuität), dann anderes Video.
+    Kein Atem-Clip wird doppelt eingefügt.
+    """
+    if not selected or not analyzed_videos:
+        return selected
+
+    # Hochenergetische Clips identifizieren (nicht den allerersten Clip)
+    high_clips = sorted(
+        [(i, c) for i, c in enumerate(selected)
+         if c.get("score", 0) >= threshold_high and i > 0],
+        key=lambda x: x[1]["score"], reverse=True,
+    )[:max_injections]
+
+    if not high_clips:
+        return selected
+
+    injections: list[tuple[int, dict]] = []
+    used: set[tuple[str, float]] = set()   # (v_path, snap_start)
+
+    for insert_idx, high_clip in high_clips:
+        breath = None
+        v = high_clip["video_path"]
+
+        # Priorität 1: Atemmoment aus demselben Video
+        if v in analyzed_videos:
+            cand = _find_breath_clip(analyzed_videos[v], v)
+            if cand and (v, cand["start"]) not in used:
+                breath = cand
+
+        # Priorität 2: Atemmoment aus einem anderen Video
+        if breath is None:
+            for vp, res in analyzed_videos.items():
+                if vp == v:
+                    continue
+                cand = _find_breath_clip(res, vp)
+                if cand and (vp, cand["start"]) not in used:
+                    breath = cand
+                    break
+
+        if breath:
+            injections.append((insert_idx, breath))
+            used.add((breath["video_path"], breath["start"]))
+
+    if not injections:
+        return selected
+
+    # Von hinten nach vorne einfügen — Indizes bleiben korrekt
+    result = list(selected)
+    for idx, breath in sorted(injections, key=lambda x: x[0], reverse=True):
+        result.insert(idx, breath)
+
+    return result
+
+
+def _apply_money_shot_lock(selected: list) -> list:
+    """
+    Verschiebt den absolut besten Clip (höchster Score) an die ~70%-Position
+    der Gesamtdauer — die klassische Spannungskurve:
+
+        Aufbau (0–70 %)  →  KLIMAX / Money Shot  →  Outro (70–100 %)
+
+    Buildup-Clips werden aufsteigend nach Score sortiert (Energie steigt linear).
+    Outro-Clips behalten ihre Reihenfolge.
+    Muss VOR _inject_contrast aufgerufen werden (noch keine Breath-Clips in der Liste).
+    """
+    if len(selected) < 3:
+        return selected
+
+    # Besten Clip finden
+    ms_idx, money_shot = max(enumerate(selected), key=lambda x: x[1].get("score", 0))
+
+    # Alle anderen Clips
+    others = [c for i, c in enumerate(selected) if i != ms_idx]
+
+    # Splitpunkt bei ~70 % der kumulierten Dauer
+    total  = sum(c.get("duration", 0) for c in others)
+    target = total * 0.70
+    cum    = 0.0
+    split  = len(others)                  # Fallback: Money Shot ganz am Ende
+    for i, c in enumerate(others):
+        cum += c.get("duration", 0)
+        if cum >= target:
+            split = i + 1
+            break
+
+    # Buildup: aufsteigend nach Score → Energie baut sich sauber auf
+    buildup = sorted(others[:split], key=lambda c: c.get("score", 0))
+    outro   = others[split:]              # Outro unverändert
+
+    return buildup + [money_shot] + outro
+
+
+def _apply_burst_pause(selected: list, wave_size: int = 4) -> list:
+    """
+    Restrukturiert den Buildup-Abschnitt in Burst-Pause-Wellen.
+    Muss NACH _apply_money_shot_lock laufen (Money Shot bereits positioniert).
+
+    Prinzip pro Welle (wave_size = 4):
+        [burst: 3 aufsteigende Clips] → [pause: 1 niederenergetischer Clip]
+    Wellen werden von Welle zu Welle intensiver — Overall-Energie steigt,
+    aber mit rhythmischen Einbrüchen statt monotoner Rampe.
+
+    Beispiel (8 Buildup-Clips, scores 0.3–0.75):
+        Welle 1: [0.40 → 0.50 → 0.55] → [0.30]   ← erste Burst, dann Luft
+        Welle 2: [0.65 → 0.70 → 0.75] → [0.60]   ← zweite Burst, intensiver
+        [BREATH] [MONEY SHOT]
+
+    Outro-Clips (nach dem Money Shot) werden nicht verändert.
+    """
+    if len(selected) < wave_size + 1:
+        return selected
+
+    # Money Shot finden (höchster Score, kein Breath-Clip)
+    ms_idx, best_score = None, -1.0
+    for i, c in enumerate(selected):
+        s = c.get("score", 0)
+        if not c.get("is_contrast_clip") and s > best_score:
+            best_score, ms_idx = s, i
+
+    if ms_idx is None or ms_idx < wave_size:
+        return selected
+
+    buildup = selected[:ms_idx]
+    tail    = selected[ms_idx:]       # Money Shot + Outro unverändert
+
+    n = len(buildup)
+    if n < wave_size:
+        return selected
+
+    # Buildup aufsteigend nach Score sortieren (Wellen werden von links nach rechts intensiver)
+    clips = sorted(buildup, key=lambda c: c.get("score", 0))
+
+    result = []
+    i = 0
+    while i < n:
+        wave = clips[i : i + wave_size]
+        if len(wave) < 2:
+            result.extend(wave)
+            break
+        # Niedrigster Clip der Welle = Pause (wird ans Ende gestellt)
+        pause = wave[0]
+        burst = wave[1:]          # Rest = Burst, aufsteigend (Intensität steigt innerhalb)
+        result.extend(burst)
+        result.append(pause)
+        i += wave_size
+
+    return result + tail
+
+
+def _apply_rehook_loop(selected: list) -> list:
+    """
+    Hängt am Ende eine kurze Wiederholung des ersten Clips an (Re-Hook).
+
+    Auf Instagram/TikTok loopen Reels automatisch — wenn der letzte Frame
+    visuell an den ersten anknüpft, wirkt das Reel endlos und professionell produziert.
+
+    Implementierung: erster echter Clip (kein Breath-Clip) wird mit max. 1.5s
+    Länge als letzter Clip eingefügt. Markierung `is_rehook=True` schützt
+    den Clip vor dem Dedup-Filter im Export-Thread.
+    """
+    if len(selected) < 2:
+        return selected
+
+    first = next((c for c in selected if not c.get("is_contrast_clip")), None)
+    if first is None:
+        return selected
+
+    rehook_dur = min(first.get("duration", 1.5), 1.5)
+    rehook = {
+        **first,
+        "end":       first["start"] + rehook_dur,
+        "duration":  rehook_dur,
+        "is_rehook": True,
+        "preset":    "rehook",
+    }
+    return selected + [rehook]
+
+
+@app.route("/api/export/bpm_locked_reel", methods=["POST"])
+def export_bpm_locked_reel():
+    """
+    BPM-Locked Cut Montage: Alle Schnittpunkte liegen exakt auf dem Beat.
+    Clip-Längen werden auf Vielfache von 4 Beats (1 Bar) gerundet.
+    Clips aus verschiedenen Videos behalten jeweils ihr eigenes Beat-Grid.
+    """
+    data = request.json
+    target_duration = data.get("duration", 15)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    bar_size = 4  # 4/4-Takt (Standard für Techno)
+
+    all_clips = []
+    analyzed_videos = {}
+    for f in os.listdir(config.OUTPUT_DIR):
+        if not f.endswith("_analysis.json"):
+            continue
+        video_name = f.replace("_analysis.json", "")
+        v_path = None
+        for ext in config.SUPPORTED_EXTENSIONS:
+            p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+            if os.path.exists(p):
+                v_path = p
+                break
+        if not v_path:
+            continue
+
+        with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+            res = json.load(j)
+        analyzed_videos[v_path] = res
+
+        bpm = float(res.get("audio", {}).get("tempo", 0))
+        beat_times = res.get("audio", {}).get("beat_times", [])
+        video_duration = float(res.get("video", {}).get("duration", 0) or
+                               res.get("audio", {}).get("duration", 0))
+
+        if not beat_times or bpm < 60:
+            continue
+
+        beat_interval = 60.0 / bpm
+
+        for c in res.get("suggested_clips", []):
+            if c["duration"] > 8:
+                continue
+
+            snapped_start = _snap_to_nearest_beat(c["start"], beat_times)
+
+            # Clip-Länge auf nächstes Bar-Vielfaches runden
+            raw_beats = (c["end"] - snapped_start) / beat_interval
+            locked_beats = round(raw_beats / bar_size) * bar_size
+            locked_beats = max(bar_size, locked_beats)
+
+            raw_end = snapped_start + locked_beats * beat_interval
+            snapped_end = _snap_to_nearest_beat(raw_end, beat_times)
+
+            if snapped_end > video_duration:
+                snapped_end = video_duration
+            if snapped_end - snapped_start < beat_interval:
+                continue
+
+            locked_dur = snapped_end - snapped_start
+            bars = max(1, round(locked_dur / beat_interval / bar_size))
+
+            all_clips.append({
+                **c,
+                "video_path": v_path,
+                "start":    round(snapped_start, 3),
+                "end":      round(snapped_end, 3),
+                "duration": round(locked_dur, 3),
+                "bpm":      round(bpm, 1),
+                "bars":     bars,
+            })
+
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips mit Beat-Daten gefunden"}), 404
+
+    all_clips.sort(key=lambda x: x["score"], reverse=True)
+
+    selected = []
+    current_dur = 0.0
+    video_usage = {}
+
+    for c in all_clips:
+        if current_dur >= target_duration:
+            break
+        v = c["video_path"]
+        if v not in video_usage:
+            video_usage[v] = []
+        overlap = any(c["start"] < end and c["end"] > start
+                      for start, end in video_usage[v])
+        if not overlap:
+            selected.append(c)
+            video_usage[v].append((c["start"], c["end"]))
+            current_dur += c["duration"]
+
+    if not selected:
+        return jsonify({"error": "Keine passenden Beat-Aligned Clips gefunden"}), 404
+
+    # Money Shot Lock: Besten Clip an ~70 %-Position setzen
+    selected = _apply_money_shot_lock(selected)
+
+    # Burst-Pause: Buildup in Wellen restrukturieren (Burst → Pause → Burst → …)
+    selected = _apply_burst_pause(selected)
+
+    # Contrast Injection: Atemmoment direkt vor dem Money Shot
+    n_inj    = max(1, target_duration // 15)
+    selected = _inject_contrast(selected, analyzed_videos, max_injections=n_inj)
+
+    # Re-Hook Loop: ersten Clip kurz am Ende wiederholen → nahtloser Social-Media-Loop
+    selected = _apply_rehook_loop(selected)
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id = f"bpm_locked_{target_duration}s_{int(time.time())}"
+    output_name = f"BPM_LOCKED_{target_duration}s_{int(time.time())}"
+    total_bars = sum(c.get("bars", 1) for c in selected)
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"BPM-Locked: {len(selected)} Clips / {total_bars} Bars",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        "status": "started",
+        "job_id": job_id,
+        "clips": len(selected),
+        "total_bars": total_bars,
+        "actual_duration": round(current_dur, 2),
+    })
+
+
+@app.route("/api/export/story_arc", methods=["POST"])
+def export_story_arc():
+    """
+    Erstellt einen strukturierten Story-Arc Reel mit 4 Segmenten:
+      1. Hook + Build-Up  – Spannung aufbauen
+      2. Drop             – Der Moment der Entladung
+      3. Crowd Reaction   – Reaktion kurz nach dem Drop
+      4. Outro            – Ausklang / letzter Eindruck
+    """
+    data = request.json
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    # Alle analysierten Videos laden
+    candidates = []
+    for f in os.listdir(config.OUTPUT_DIR):
+        if not f.endswith("_analysis.json"):
+            continue
+        video_name = f.replace("_analysis.json", "")
+        v_path = None
+        for ext in config.SUPPORTED_EXTENSIONS:
+            p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+            if os.path.exists(p):
+                v_path = p
+                break
+        if not v_path:
+            continue
+        try:
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                candidates.append({"video_path": v_path, "results": json.load(j)})
+        except Exception:
+            pass
+
+    if not candidates:
+        return jsonify({"error": "Keine analysierten Videos gefunden"}), 404
+
+    segments = _build_story_arc(candidates)
+    if len(segments) < 2:
+        return jsonify({"error": "Zu wenig Material für einen Story Arc"}), 404
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(segments, target_bpm)
+
+    job_id = f"story_arc_{int(time.time())}"
+    output_name = f"STORY_ARC_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Story Arc ({len(segments)} Segmente) wird erstellt...",
+        "filename": "STORY_ARC",
+        "started_at": time.time(),
+        "segments": [s.get("segment_label", "?") for s in segments],
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, segments, output_name, mode)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id,
+                    "segments": [s.get("segment_label", "?") for s in segments]})
+
+
+def _build_story_arc(candidates):
+    """
+    Wählt für jeden der 4 Segmente den besten Clip aus allen analysierten Videos:
+
+    buildup  – Clip überlappt erkannten Buildup ODER liegt in den ersten 40 % des Videos
+    drop     – Clip enthält den Bass-Drop mit höchster Intensität
+    crowd    – Clip startet 0.3–7s nach dem Drop (Crowd-Reaktion / Kamera-Schnitt)
+    outro    – Clip aus den letzten 25 % des Videos
+    """
+    from collections import defaultdict
+
+    pools = {"buildup": [], "drop": [], "crowd": [], "outro": []}
+    all_clips = []   # Fallback-Pool
+
+    for cand in candidates:
+        res = cand["results"]
+        v_path = cand["video_path"]
+        duration = res["audio"].get("duration", 0)
+        if duration <= 0:
+            continue
+
+        audio      = res["audio"]
+        bass_drops = audio.get("bass_drops", [])
+        buildups   = audio.get("buildups",   [])
+
+        best_drop = max(bass_drops, key=lambda d: d["intensity"]) if bass_drops else None
+        drop_time = best_drop["time"] if best_drop else None
+
+        for clip in res.get("suggested_clips", []):
+            c = {**clip, "video_path": v_path}
+            s, e = c["start"], c["end"]
+            mid = (s + e) / 2
+            rel = mid / duration   # 0 = Anfang, 1 = Ende
+
+            all_clips.append(c)
+
+            # ── Hook + Build-Up ──────────────────────────────────────────
+            in_buildup = any(s < bu["end"] and e > bu["start"] for bu in buildups)
+            before_drop = (drop_time is None) or (e <= drop_time + 1.0)
+
+            if in_buildup:
+                pools["buildup"].append({
+                    **c,
+                    "seg_score": c["score"] * 1.5,
+                    "segment_label": "BUILDUP",
+                })
+            elif rel < 0.40 and before_drop:
+                pools["buildup"].append({
+                    **c,
+                    "seg_score": c["score"],
+                    "segment_label": "HOOK",
+                })
+
+            # ── Drop ─────────────────────────────────────────────────────
+            if drop_time is not None and s <= drop_time <= e:
+                pools["drop"].append({
+                    **c,
+                    "seg_score": c["score"] * (1.0 + best_drop["intensity"]),
+                    "segment_label": "DROP",
+                })
+
+            # ── Crowd Reaction ───────────────────────────────────────────
+            if drop_time is not None:
+                delay = s - drop_time
+                if 0.3 <= delay <= 7.0:
+                    # je kürzer das Delay, desto unmittelbarer die Reaktion
+                    pools["crowd"].append({
+                        **c,
+                        "seg_score": c["score"] * (2.0 / (delay + 0.5)),
+                        "segment_label": "CROWD",
+                    })
+
+            # ── Outro ────────────────────────────────────────────────────
+            if rel > 0.75:
+                pools["outro"].append({
+                    **c,
+                    "seg_score": c["score"],
+                    "segment_label": "OUTRO",
+                })
+
+    # Sortieren
+    for k in pools:
+        pools[k].sort(key=lambda x: x.get("seg_score", 0), reverse=True)
+    all_clips.sort(key=lambda x: x["score"], reverse=True)
+
+    # Besten Clip pro Segment wählen – mit Ziel-Dauer-Präferenz
+    def pick(pool, fallback, target_dur):
+        source = pool if pool else fallback
+        if not source:
+            return None
+        # Unter den Top-15 denjenigen mit passender Dauer bevorzugen
+        top = source[:15]
+        close = [c for c in top if abs(c["duration"] - target_dur) <= target_dur * 0.7]
+        return close[0] if close else top[0]
+
+    buildup = pick(pools["buildup"], all_clips,  5.0)
+    drop    = pick(pools["drop"],    all_clips,  2.0)
+    crowd   = pick(pools["crowd"],   all_clips,  3.0)
+    outro   = pick(pools["outro"],   all_clips,  5.0)
+
+    # Segment-Labels für Job-Status setzen
+    for seg, label in [(buildup,"HOOK+BUILDUP"), (drop,"DROP"),
+                       (crowd,"CROWD REACTION"), (outro,"OUTRO")]:
+        if seg:
+            seg["segment_label"] = label
+
+    return [s for s in [buildup, drop, crowd, outro] if s]
+
+
+@app.route("/api/export/adaptive_reel", methods=["POST"])
+def export_adaptive_reel():
+    """
+    Adaptive-Length Reel: Clip-Längen passen sich an den Energie-Score an.
+      score ≥ 0.85  →  2 Beats  (~0.9s bei 140 BPM)   — Climax-Schnitte
+      score ≥ 0.70  →  4 Beats  (~1.7s)                — High Energy
+      score ≥ 0.50  →  8 Beats  (~3.4s)                — Medium
+      score ≥ 0.30  → 16 Beats  (~6.9s)                — Low Energy
+      score  < 0.30 → 24 Beats  (~10s)                 — Ruhiger Einstieg
+    Montage-Reihenfolge: aufsteigend nach Score → natürlicher Calm-to-Climax-Arc.
+    """
+    data = request.json
+    target_duration = data.get("duration", 30)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    bar_size = 4  # 4/4-Takt
+
+    all_clips = []
+    analyzed_videos = {}
+    for f in os.listdir(config.OUTPUT_DIR):
+        if not f.endswith("_analysis.json"):
+            continue
+        video_name = f.replace("_analysis.json", "")
+        v_path = None
+        for ext in config.SUPPORTED_EXTENSIONS:
+            p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+            if os.path.exists(p):
+                v_path = p
+                break
+        if not v_path:
+            continue
+
+        with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+            res = json.load(j)
+        analyzed_videos[v_path] = res
+
+        bpm        = float(res.get("audio", {}).get("tempo", 120.0))
+        beat_times = res.get("audio", {}).get("beat_times", [])
+        vid_dur    = float(
+            res.get("video", {}).get("duration", 0) or
+            res.get("audio", {}).get("duration", 0)
+        )
+        beat_interval = 60.0 / max(bpm, 60.0)
+
+        for c in res.get("suggested_clips", []):
+            score = c.get("score", 0.0)
+
+            # Score → Beat-Anzahl (inverse: hoher Score = kurzer Clip)
+            if score >= 0.85:   beats = bar_size // 2
+            elif score >= 0.70: beats = bar_size
+            elif score >= 0.50: beats = bar_size * 2
+            elif score >= 0.30: beats = bar_size * 4
+            else:               beats = bar_size * 6
+
+            snap_start = _snap_to_nearest_beat(c["start"], beat_times) if beat_times else c["start"]
+            raw_end    = snap_start + beats * beat_interval
+            snap_end   = _snap_to_nearest_beat(raw_end, beat_times) if beat_times else raw_end
+
+            if snap_end > vid_dur:
+                snap_end = vid_dur
+            if snap_end - snap_start < beat_interval:
+                continue
+
+            all_clips.append({
+                **c,
+                "video_path": v_path,
+                "start":    round(snap_start, 3),
+                "end":      round(snap_end, 3),
+                "duration": round(snap_end - snap_start, 3),
+                "bpm":      round(bpm, 1),
+                "beats":    beats,
+            })
+
+    if not all_clips:
+        return jsonify({"error": "Keine analysierten Clips gefunden"}), 404
+
+    # Aufsteigend nach Score → Calm zuerst, Climax am Ende
+    all_clips.sort(key=lambda x: x["score"])
+
+    selected  = []
+    curr_dur  = 0.0
+    vid_usage = {}
+
+    for c in all_clips:
+        if curr_dur >= target_duration:
+            break
+        v = c["video_path"]
+        if v not in vid_usage:
+            vid_usage[v] = []
+        if not any(c["start"] < e and c["end"] > s for s, e in vid_usage[v]):
+            selected.append(c)
+            vid_usage[v].append((c["start"], c["end"]))
+            curr_dur += c["duration"]
+
+    if not selected:
+        return jsonify({"error": "Keine Clips für Adaptive Arc gefunden"}), 404
+
+    # Money Shot Lock: Besten Clip an ~70 %-Position setzen
+    selected = _apply_money_shot_lock(selected)
+
+    # Burst-Pause: Buildup in Wellen restrukturieren (Burst → Pause → Burst → …)
+    selected = _apply_burst_pause(selected)
+
+    # Contrast Injection: Atemmoment direkt vor dem Money Shot
+    n_inj    = max(1, target_duration // 15)
+    selected = _inject_contrast(selected, analyzed_videos, max_injections=n_inj)
+
+    # Re-Hook Loop: ersten Clip kurz am Ende wiederholen → nahtloser Social-Media-Loop
+    selected = _apply_rehook_loop(selected)
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    _apply_target_bpm(selected, target_bpm)
+
+    job_id      = f"adaptive_{target_duration}s_{int(time.time())}"
+    output_name = f"ADAPTIVE_ARC_{target_duration}s_{int(time.time())}"
+
+    # Beat-Statistik für Job-Message
+    dur_map = {c["beats"]: c["duration"] for c in selected}
+    min_b   = min(c["beats"] for c in selected)
+    max_b   = max(c["beats"] for c in selected)
+
+    export_jobs[job_id] = {
+        "status":     "running",
+        "progress":   0,
+        "message":    f"Adaptive Arc: {len(selected)} Clips · {min_b}–{max_b} Beats · ~{curr_dur:.0f}s",
+        "filename":   "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, selected, output_name, mode),
+        kwargs={"dedup": True},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        "status":          "started",
+        "job_id":          job_id,
+        "clips":           len(selected),
+        "actual_duration": round(curr_dur, 2),
+        "beat_range":      [min_b, max_b],
+    })
+
+
+@app.route("/api/export/seamless_loop", methods=["POST"])
+def export_seamless_loop_endpoint():
+    """Erstellt einen Seamless Loop aus dem besten 10s Clip über alle Videos hinweg."""
+    data = request.json
+    target_duration = data.get("duration", 10)
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    best_clip = None
+    best_score = -1
+    best_fallback = None
+    best_fallback_score = -1
+
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            v_path = None
+            for ext in config.SUPPORTED_EXTENSIONS:
+                p = os.path.join(config.VIDEO_SOURCE_DIR, video_name + ext)
+                if os.path.exists(p):
+                    v_path = p
+                    break
+
+            if not v_path: continue
+
+            with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                res = json.load(j)
+                for c in res.get("suggested_clips", []):
+                    # Proportionale Toleranz (50% der Zieldauer, mind. 2s Puffer)
+                    # Verhindert leere Ergebnisse wenn Presets nicht exakt zur Zieldauer passen
+                    if abs(c["duration"] - target_duration) <= max(target_duration * 0.5, 2.0):
+                        if c["score"] > best_score:
+                            best_score = c["score"]
+                            best_clip = c.copy()
+                            best_clip["video_path"] = v_path
+                    # Fallback: bester Clip mit Mindestlänge für den Loop-Algorithmus (>2s)
+                    if c["duration"] > 2.0 and c["score"] > best_fallback_score:
+                        best_fallback_score = c["score"]
+                        best_fallback = c.copy()
+                        best_fallback["video_path"] = v_path
+
+    # Fallback verwenden wenn kein Clip im Toleranz-Fenster liegt
+    if not best_clip:
+        if not best_fallback:
+            return jsonify({"error": "Kein passender Clip gefunden"}), 404
+        best_clip = best_fallback
+
+    # Tempo-Stretch auf Ziel-BPM (nur wenn Regler aktiv)
+    loop_speed = _single_video_speed(best_clip["video_path"], target_bpm)
+
+    job_id = f"loop_{target_duration}s_{int(time.time())}"
+    output_name = f"SEAMLESS_LOOP_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running",
+        "progress": 0,
+        "message": f"Seamless Loop ({best_clip['duration']}s) wird erstellt...",
+        "filename": "ALL_VIDEOS",
+        "started_at": time.time(),
+    }
+
+    def run_loop_task():
+        from analyzer.clip_exporter import export_seamless_loop
+        def progress_cb(stage, pct, message):
+            if job_id in export_jobs:
+                export_jobs[job_id].update({"progress": pct, "message": message})
+        try:
+            result = export_seamless_loop(
+                best_clip["video_path"], best_clip["start"], best_clip["end"],
+                output_name, mode=mode, progress_callback=progress_cb,
+                speed=loop_speed
+            )
+            if job_id in export_jobs:
+                export_jobs[job_id].update({
+                    "status": "completed",
+                    "progress": 100,
+                    "message": "Seamless Loop fertig!",
+                    "results": [result],
+                    "completed_at": time.time(),
+                })
+        except Exception as e:
+            if job_id in export_jobs:
+                export_jobs[job_id].update({"status": "error", "message": str(e)})
+
+    thread = threading.Thread(target=run_loop_task)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+@app.route("/api/export/single_loop", methods=["POST"])
+def export_single_loop_endpoint():
+    """Exportiert einen einzelnen Clip als Seamless Loop (aus dem Studio)."""
+    from analyzer.clip_exporter import export_seamless_loop
+    
+    data = request.json
+    filename = data.get("filename")
+    start = data.get("start")
+    end = data.get("end")
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+
+    if not filename or start is None or end is None:
+        return jsonify({"error": "filename, start und end sind erforderlich"}), 400
+
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    base = os.path.splitext(filename)[0]
+    clip_name = f"{base}_LOOP_{mode}_{int(start)}s-{int(end)}s"
+    speed = _single_video_speed(filepath, target_bpm)
+
+    try:
+        result = export_seamless_loop(filepath, start, end, clip_name, mode=mode, output_dir=config.SINGLE_DOWNLOADS_DIR, speed=speed)
+        return jsonify({"status": "success", "export": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/export/status/<job_id>")
+def get_export_status(job_id):
+    """Gibt den Status eines Export-Jobs zurück."""
+    if job_id in export_jobs:
+        return jsonify(export_jobs[job_id])
+    return jsonify({"status": "not_found"}), 404
+
+
+@app.route("/api/export/cancel/<job_id>", methods=["POST"])
+def cancel_export(job_id):
+    """
+    Bricht einen laufenden Export sofort ab:
+    1. Setzt das Cancel-Event → Export-Loop stoppt vor dem nächsten Clip
+    2. Killt den aktiven FFmpeg-Prozess für diesen Thread
+    3. Löscht die unfertige Output-Datei
+    """
+    from analyzer.clip_exporter import _active_procs, _active_procs_lock
+
+    # 1. Cancel-Event setzen
+    evt = _cancel_events.get(job_id)
+    if evt:
+        evt.set()
+
+    # 2. Laufenden FFmpeg-Prozess killen
+    tid = _job_threads.get(job_id)
+    if tid:
+        with _active_procs_lock:
+            proc = _active_procs.get(tid)
+            if proc and proc.poll() is None:   # Prozess noch aktiv?
+                proc.kill()
+
+    # 3. Unfertige Output-Datei löschen
+    job = export_jobs.get(job_id, {})
+    output_path = job.get("output_path")
+    deleted_files = []
+
+    if output_path and os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+            deleted_files.append(os.path.basename(output_path))
+        except Exception:
+            pass
+
+    # Temp-Verzeichnis partieller Dateien bereinigen
+    try:
+        for f in os.listdir(config.TEMP_DIR):
+            if f.endswith(".mp4") or f.endswith(".txt"):
+                p = os.path.join(config.TEMP_DIR, f)
+                try:
+                    os.remove(p)
+                    deleted_files.append(f)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 4. Job-Status aktualisieren
+    if job_id in export_jobs:
+        export_jobs[job_id].update({
+            "status": "cancelled",
+            "progress": 0,
+            "message": "Export abgebrochen.",
+            "deleted_files": deleted_files,
+        })
+
+    # Registrierungen aufräumen
+    _job_threads.pop(job_id, None)
+    _cancel_events.pop(job_id, None)
+
+    return jsonify({
+        "status": "cancelled",
+        "job_id": job_id,
+        "file_deleted": bool(deleted_files),
+        "deleted_files": deleted_files,
+    })
+
+
+@app.route("/api/export/single", methods=["POST"])
+def export_single_clip():
+    """Exportiert einen einzelnen Clip."""
+    from analyzer.clip_exporter import export_clip
+
+    data = request.json
+    filename = data.get("filename")
+    start = data.get("start")
+    end = data.get("end")
+    mode = data.get("mode", "reel")
+    target_bpm = _parse_target_bpm(data)
+    fade = data.get("fade", True)
+
+    if not filename or start is None or end is None:
+        return jsonify({"error": "filename, start und end sind erforderlich"}), 400
+
+    filepath = os.path.join(config.VIDEO_SOURCE_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video nicht gefunden"}), 404
+
+    base = os.path.splitext(filename)[0]
+    clip_name = f"{base}_{mode}_{int(start)}s-{int(end)}s"
+    speed = _single_video_speed(filepath, target_bpm)
+
+    try:
+        result = export_clip(filepath, start, end, clip_name, mode=mode, fade=fade, speed=speed)
+        return jsonify({"status": "success", "export": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/exports")
+def list_exports():
+    """Listet alle exportierten Clips."""
+    exports = {"single": [], "best_of": [], "sets": []}
+
+    # Helper function to recursively find files and keep relative path
+    def add_files_from_dir(folder, key):
+        if os.path.exists(folder):
+            for root, _, files in os.walk(folder):
+                for f in files:
+                    filepath = os.path.join(root, f)
+                    if os.path.isfile(filepath):
+                        # Create relative path from OUTPUT_DIR
+                        rel_path = os.path.relpath(filepath, config.OUTPUT_DIR)
+                        exports[key].append({
+                            "filename": os.path.basename(f),
+                            "size_mb": round(os.path.getsize(filepath) / (1024 * 1024), 1),
+                            "path": rel_path.replace('\\', '/'),
+                        })
+
+    add_files_from_dir(config.SINGLE_DOWNLOADS_DIR, "single")
+    add_files_from_dir(config.BEST_OF_DIR, "best_of")
+    add_files_from_dir(config.EDITOR_SETS_DIR, "sets")
+
+    return jsonify(exports)
+
+@app.route("/api/export/delete", methods=["POST"])
+def delete_export():
+    """Löscht eine exportierte Datei."""
+    data = request.json
+    filepath = data.get("path")
+
+    if not filepath:
+        return jsonify({"error": "path ist erforderlich"}), 400
+
+    # Pfad validieren (Sicherheit: nur innerhalb von output)
+    full_path = os.path.normpath(os.path.join(config.OUTPUT_DIR, filepath))
+    if not full_path.startswith(os.path.normpath(config.OUTPUT_DIR)):
+        return jsonify({"error": "Ungültiger Pfad"}), 403
+
+    if os.path.exists(full_path) and os.path.isfile(full_path):
+        try:
+            os.remove(full_path)
+            return jsonify({"status": "success"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Datei nicht gefunden"}), 404
+
+@app.route("/api/exports/download_all")
+def download_all_exports():
+    """Erstellt ein ZIP-Archiv mit allen exportierten Clips."""
+    zip_path = os.path.join(config.TEMP_DIR, "all_exports.zip")
+
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for folder in [config.SINGLE_DOWNLOADS_DIR, config.BEST_OF_DIR, config.EDITOR_SETS_DIR]:
+            if os.path.exists(folder):
+                for root, _, files in os.walk(folder):
+                    for f in files:
+                        filepath = os.path.join(root, f)
+                        if os.path.isfile(filepath):
+                            arcname = os.path.relpath(filepath, config.OUTPUT_DIR)
+                            zipf.write(filepath, arcname)
+
+    return send_file(zip_path, as_attachment=True, download_name="ReelVids_Exports.zip")
+
+
+# ========================
+# CONFIG
+# ========================
+
+@app.route("/api/reset_usage_log", methods=["POST"])
+def reset_usage_log():
+    """Setzt den Rotations-Algorithmus zurück (alle Videos gleichwertig)."""
+    global global_usage_log
+    global_usage_log = {}
+    save_usage_log()
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/config")
+def get_config():
+    """Gibt die aktuelle Konfiguration zurück."""
+    return jsonify({
+        "reel_presets": config.REEL_PRESETS,
+        "reel_resolution": f"{config.REEL_WIDTH}x{config.REEL_HEIGHT}",
+        "highlight_threshold": config.HIGHLIGHT_SCORE_THRESHOLD,
+        "weights": {
+            "audio_energy": config.WEIGHT_AUDIO_ENERGY,
+            "bass_drops": config.WEIGHT_BASS_DROPS,
+            "visual_motion": config.WEIGHT_VISUAL_MOTION,
+            "scene_changes": config.WEIGHT_SCENE_CHANGES,
+            "light_effects": config.WEIGHT_LIGHT_EFFECTS,
+        },
+    })
+
+
+def _cleanup_old_jobs(max_age_sec=3600):
+    """Entfernt abgeschlossene/fehlerhafte Jobs die älter als max_age_sec sind."""
+    cutoff = time.time() - max_age_sec
+    for jobs_dict in (analysis_jobs, export_jobs):
+        to_delete = [
+            k for k, v in jobs_dict.items()
+            if v.get("status") in ("completed", "error")
+            and v.get("completed_at", v.get("started_at", 0)) < cutoff
+        ]
+        for k in to_delete:
+            del jobs_dict[k]
+
+
+import hashlib
+import subprocess
+from datetime import datetime
+
+_ingested_hashes = {}
+
+def _ingest_file(filepath):
+    """
+    Phase 5 Ingestion:
+    1. Duplikat-Erkennung via Dateigröße + 1MB Hash. Löscht Duplikate sofort.
+    2. Smart Renaming: Liest creation_time (ffprobe/os.stat) und benennt um nach UNREEL_YYYYMMDD_HHMMSS.mp4.
+    """
+    filename = os.path.basename(filepath)
+    if filename.startswith("._"):
+        return None
+        
+    try:
+        size = os.path.getsize(filepath)
+        with open(filepath, 'rb') as f:
+            chunk = f.read(1024 * 1024)
+        f_hash = f"{size}_{hashlib.md5(chunk).hexdigest()}"
+    except Exception:
+        return None
+        
+    # Duplikat-Check
+    if f_hash in _ingested_hashes:
+        existing = _ingested_hashes[f_hash]
+        if existing != filepath and os.path.exists(existing):
+            print(f"// INGESTION: Deleting duplicate {filename} (same as {os.path.basename(existing)})")
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"// INGESTION ERROR: Could not delete {filename}: {e}")
+            return None
+            
+    _ingested_hashes[f_hash] = filepath
+    
+    # Renaming
+    if not filename.startswith("UNREEL_"):
+        ctime_str = ""
+        try:
+            cmd = [
+                "ffprobe", "-v", "quiet", "-select_streams", "v:0",
+                "-show_entries", "format_tags=creation_time",
+                "-of", "default=noprint_wrappers=1:nokey=1", filepath
+            ]
+            out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True).strip()
+            if out:
+                dt = datetime.strptime(out[:19], "%Y-%m-%dT%H:%M:%S")
+                ctime_str = dt.strftime("%Y%m%d_%H%M%S")
+        except Exception:
+            pass
+            
+        if not ctime_str:
+            try:
+                mtime = os.path.getmtime(filepath)
+                dt = datetime.fromtimestamp(mtime)
+                ctime_str = dt.strftime("%Y%m%d_%H%M%S")
+            except Exception:
+                ctime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+        ext = os.path.splitext(filename)[1].lower()
+        new_name = f"UNREEL_{ctime_str}{ext}"
+        new_filepath = os.path.join(os.path.dirname(filepath), new_name)
+        
+        counter = 1
+        while os.path.exists(new_filepath) and new_filepath != filepath:
+            new_name = f"UNREEL_{ctime_str}_{counter}{ext}"
+            new_filepath = os.path.join(os.path.dirname(filepath), new_name)
+            counter += 1
+            
+        if new_filepath != filepath:
+            print(f"// INGESTION: Renaming {filename} -> {new_name}")
+            try:
+                os.rename(filepath, new_filepath)
+                _ingested_hashes[f_hash] = new_filepath
+                return new_filepath
+            except Exception as e:
+                print(f"// INGESTION ERROR: Could not rename {filename}: {e}")
+                return filepath
+                
+    return filepath
+
+
+def run_watchdog():
+    """Hintergrund-Thread, der alle 30 Sekunden nach neuen Videos sucht."""
+    while True:
+        try:
+            for f in os.listdir(config.VIDEO_SOURCE_DIR):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in {e.lower() for e in config.SUPPORTED_EXTENSIONS}:
+                    if f.startswith("._"): continue
+
+                    filepath = os.path.join(config.VIDEO_SOURCE_DIR, f)
+                    
+                    # Phase 5: Ingestion (Deduplication & Renaming)
+                    new_filepath = _ingest_file(filepath)
+                    if not new_filepath:
+                        continue # File was deleted or error
+                        
+                    new_f = os.path.basename(new_filepath)
+
+                    results_path = os.path.join(
+                        config.OUTPUT_DIR,
+                        f"{os.path.splitext(new_f)[0]}_analysis.json"
+                    )
+
+                    # Wenn weder Analyse existiert noch ein Job läuft -> Starten
+                    if not os.path.exists(results_path) and new_f not in analysis_jobs:
+                        analysis_jobs[new_f] = {
+                            "status": "running", "progress": 0, "stage": "queued",
+                            "message": "Auto-Pilot...", "started_at": time.time(),
+                        }
+                        thread = threading.Thread(target=_run_analysis, args=(new_f, new_filepath))
+                        thread.daemon = True
+                        thread.start()
+                        print(f"// WATCHDOG: ANALYZING {new_f}")
+
+            # Abgeschlossene Jobs bereinigen um Memory Leak zu verhindern
+            _cleanup_old_jobs()
+
+        except Exception as e:
+            print(f"// WATCHDOG ERROR: {e}")
+
+        time.sleep(30)
+
+
+def load_existing_results():
+    """Lädt bereits vorhandene Analyse-Ergebnisse in den Cache."""
+    if not os.path.exists(config.OUTPUT_DIR): return
+    
+    count = 0
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            video_name = f.replace("_analysis.json", "")
+            # Suche das passende Video-File
+            for ext in config.SUPPORTED_EXTENSIONS:
+                full_name = video_name + ext
+                if os.path.exists(os.path.join(config.VIDEO_SOURCE_DIR, full_name)):
+                    try:
+                        with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                            analysis_cache[full_name] = json.load(j)
+                            count += 1
+                        break
+                    except: pass
+    print(f"// BOOT: LOADED {count} EXISTING ANALYSES INTO CACHE.")
+
+
+# ========================
+# WATERMARK DETECTION & REMOVAL
+# ========================
+
+@app.route("/api/watermark/batch_clean", methods=["POST"])
+def watermark_batch_clean():
+    import uuid as _uuid
+    import subprocess as _sp
+    from analyzer.watermark_detector import detect_capcut_watermark
+
+    scan_dirs = [
+        os.path.join(config.OUTPUT_DIR, "single_downloads"),
+        os.path.join(config.OUTPUT_DIR, "best_of"),
+        os.path.join(config.OUTPUT_DIR, "editor_sets"),
+    ]
+    job_id = str(_uuid.uuid4())[:8]
+    export_jobs[job_id] = {"status": "running", "progress": 0, "message": "COLLECTING FILES..."}
+
+    def _run():
+        files = []
+        for d in scan_dirs:
+            if os.path.exists(d):
+                for f in sorted(os.listdir(d)):
+                    if f.lower().endswith(".mp4") and not f.endswith("_nowm.mp4"):
+                        files.append(os.path.join(d, f))
+
+        total = len(files)
+        if total == 0:
+            export_jobs[job_id] = {"status": "completed", "progress": 100,
+                                   "message": "NO EXPORTS FOUND",
+                                   "results": {"cleaned": 0, "total": 0}}
+            return
+
+        cleaned = 0
+        errors  = 0
+        for i, fpath in enumerate(files):
+            fname = os.path.basename(fpath)
+            export_jobs[job_id]["progress"] = int(i / total * 95)
+            export_jobs[job_id]["message"]  = f"SCANNING {i+1}/{total}: {fname}"
+            temp_path = fpath + ".wm_tmp.mp4"
+            try:
+                result = detect_capcut_watermark(fpath)
+                if not result.get("detected"):
+                    continue
+                trim_start = result["trim_start"]
+                trim_end   = result["trim_end"]
+                new_dur    = max(0.1, result["duration"] - trim_start - trim_end)
+                cmd = ["ffmpeg", "-y", "-ss", str(trim_start), "-i", fpath,
+                       "-t", str(new_dur), "-c", "copy", temp_path]
+                _sp.run(cmd, check=True, capture_output=True)
+                os.replace(temp_path, fpath)
+                cleaned += 1
+            except Exception:
+                if os.path.exists(temp_path):
+                    try: os.remove(temp_path)
+                    except: pass
+                errors += 1
+
+        export_jobs[job_id] = {
+            "status": "completed", "progress": 100,
+            "message": f"DONE — {cleaned}/{total} CLEANED",
+            "results": {"cleaned": cleaned, "errors": errors, "total": total},
+        }
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    _job_threads[job_id] = t.ident
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/watermark/detect/<path:filename>", methods=["POST"])
+def watermark_detect(filename):
+    import uuid as _uuid
+    safe = _sanitize_video_filename(filename)
+    if not safe:
+        return jsonify({"error": "Invalid filename"}), 400
+    video_path = os.path.join(config.VIDEO_SOURCE_DIR, safe)
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video not found"}), 404
+    from analyzer.watermark_detector import detect_capcut_watermark
+    result = detect_capcut_watermark(video_path)
+    return jsonify(result)
+
+
+@app.route("/api/watermark/remove/<path:filename>", methods=["POST"])
+def watermark_remove(filename):
+    import uuid as _uuid
+    import subprocess as _sp
+    safe = _sanitize_video_filename(filename)
+    if not safe:
+        return jsonify({"error": "Invalid filename"}), 400
+    data       = request.json or {}
+    trim_start = float(data.get("trim_start", 0))
+    trim_end   = float(data.get("trim_end",   0))
+    duration   = float(data.get("duration",   0))
+    if trim_start <= 0 and trim_end <= 0:
+        return jsonify({"error": "Nothing to trim"}), 400
+    video_path = os.path.join(config.VIDEO_SOURCE_DIR, safe)
+    if not os.path.exists(video_path):
+        return jsonify({"error": "Video not found"}), 404
+    base, ext = os.path.splitext(safe)
+    out_name  = f"{base}_nowm{ext}"
+    out_path  = os.path.join(config.OUTPUT_DIR, "single_downloads", out_name)
+    job_id = str(_uuid.uuid4())[:8]
+    export_jobs[job_id] = {"status": "running", "progress": 0, "message": "TRIMMING..."}
+
+    def _run():
+        try:
+            new_dur = max(0.1, duration - trim_start - trim_end)
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(trim_start),
+                "-i", video_path,
+                "-t", str(new_dur),
+                "-c", "copy",
+                out_path,
+            ]
+            _sp.run(cmd, check=True, capture_output=True)
+            export_jobs[job_id] = {
+                "status": "success", "progress": 100, "message": "DONE",
+                "results": {"filename": out_name, "output_path": out_path},
+            }
+        except Exception as e:
+            export_jobs[job_id] = {"status": "error", "error": str(e)}
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    _job_threads[job_id] = t.ident
+    return jsonify({"job_id": job_id})
+
+
+# ========================
+# NEUE DJ PRESETS (PHASE 4)
+# ========================
+
+@app.route("/api/export/drop_architecture", methods=["POST"])
+def export_drop_architecture():
+    data = request.json or {}
+    target_duration = float(data.get("duration", 15.0))
+    mode = data.get("mode", "reel")
+    
+    best_drop = None
+    best_video = None
+    best_tracking = []
+    
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            v_path = _find_video_for_json(f)
+            if not v_path: continue
+            
+            try:
+                with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                    res = json.load(j)
+                    audio_data = res.get("audio", res)
+                    drops = audio_data.get("bass_drops", [])
+                    if drops:
+                        max_drop = max(drops, key=lambda x: x["intensity"])
+                        if best_drop is None or max_drop["intensity"] > best_drop["intensity"]:
+                            best_drop = max_drop
+                            best_video = v_path
+                            best_tracking = res.get("tracking_data", [])
+            except Exception as e:
+                print(f"Fehler: {e}")
+
+    if not best_drop or not best_video:
+        return jsonify({"error": "Keine Bass Drops gefunden"}), 404
+
+    drop_time = best_drop["time"]
+    start = max(0.0, drop_time - 3.0)
+    end = start + target_duration
+    
+    crop_x = 0.5
+    if best_tracking:
+        xs = [pt["x_center"] for pt in best_tracking if start <= pt["time"] <= end]
+        if xs: crop_x = sum(xs) / len(xs)
+
+    clip = {
+        "video_path": best_video,
+        "start": round(start, 3),
+        "end": round(end, 3),
+        "duration": round(end - start, 3),
+        "crop_x": round(crop_x, 4)
+    }
+
+    job_id = f"drop_arch_{target_duration}s_{int(time.time())}"
+    output_name = f"DROP_ARCHITECTURE_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running", "progress": 0,
+        "message": f"Drop Architecture ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS", "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, [clip], output_name, mode),
+        kwargs={"dedup": False},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+
+@app.route("/api/export/transition_mastery", methods=["POST"])
+def export_transition_mastery():
+    data = request.json or {}
+    target_duration = float(data.get("duration", 30.0))
+    mode = data.get("mode", "reel")
+    
+    best_clip = None
+    best_video = None
+    best_tracking = []
+    
+    for f in os.listdir(config.OUTPUT_DIR):
+        if f.endswith("_analysis.json"):
+            v_path = _find_video_for_json(f)
+            if not v_path: continue
+            
+            try:
+                with open(os.path.join(config.OUTPUT_DIR, f), "r", encoding="utf-8") as j:
+                    res = json.load(j)
+                    timeline = res.get("timeline", [])
+                    vid_dur = res.get("duration", 0)
+                    if vid_dur == 0:
+                        vid_dur = res.get("video", {}).get("duration", 0)
+                        
+                    if not timeline or vid_dur < target_duration:
+                        continue
+                        
+                    time_steps = [t["time"] for t in timeline]
+                    motion_scores = [t.get("components", {}).get("motion", 0) for t in timeline]
+                    
+                    if not motion_scores: continue
+                    
+                    min_motion = float("inf")
+                    best_start_for_vid = 0
+                    
+                    window_size = int(target_duration / 0.5)
+                    if window_size == 0 or len(motion_scores) < window_size:
+                        continue
+                        
+                    for i in range(len(motion_scores) - window_size):
+                        window = motion_scores[i:i+window_size]
+                        avg_m = sum(window) / len(window)
+                        # Suche nach minimaler Bewegung, aber nicht komplett 0 (Standbild/Schwarz)
+                        if 0.05 < avg_m < min_motion:
+                            min_motion = avg_m
+                            best_start_for_vid = time_steps[i]
+                            
+                    if best_start_for_vid > 0:
+                        if best_clip is None or min_motion < best_clip["score"]:
+                            best_clip = {
+                                "start": best_start_for_vid,
+                                "end": best_start_for_vid + target_duration,
+                                "score": min_motion
+                            }
+                            best_video = v_path
+                            best_tracking = res.get("tracking_data", [])
+            except Exception as e:
+                print(f"Fehler: {e}")
+
+    if not best_clip or not best_video:
+        return jsonify({"error": "Keine Transition-Segmente gefunden"}), 404
+
+    start = best_clip["start"]
+    end = best_clip["end"]
+    
+    crop_x = 0.5
+    if best_tracking:
+        xs = [pt["x_center"] for pt in best_tracking if start <= pt["time"] <= end]
+        if xs: crop_x = sum(xs) / len(xs)
+
+    clip = {
+        "video_path": best_video,
+        "start": round(start, 3),
+        "end": round(end, 3),
+        "duration": round(end - start, 3),
+        "crop_x": round(crop_x, 4)
+    }
+
+    job_id = f"transition_{target_duration}s_{int(time.time())}"
+    output_name = f"TRANSITION_MASTERY_{target_duration}s_{int(time.time())}"
+
+    export_jobs[job_id] = {
+        "status": "running", "progress": 0,
+        "message": f"Transition Mastery ({target_duration}s) wird erstellt...",
+        "filename": "ALL_VIDEOS", "started_at": time.time(),
+    }
+
+    thread = threading.Thread(
+        target=_run_global_montage_task,
+        args=(job_id, [clip], output_name, mode),
+        kwargs={"dedup": False},
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({"status": "started", "job_id": job_id})
+
+# ========================
+# MAIN
+# ========================
+
+if __name__ == "__main__":
+    import sys
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    
+    # Vorhandene Ergebnisse laden
+    load_existing_results()
+
+    print("\n" + "=" * 60)
+    print("  UNREEL - DJ PRODUCTION UTILITY v2.0")
+    print("=" * 60)
+    print(f"  SOURCE_DIR: {config.VIDEO_SOURCE_DIR}")
+    print(f"  OUTPUT_DIR: {config.OUTPUT_DIR}")
+    print(f"  DASHBOARD:  http://localhost:5000")
+    print("=" * 60 + "\n")
+
+    # Watchdog im Hintergrund starten
+    watchdog_thread = threading.Thread(target=run_watchdog)
+    watchdog_thread.daemon = True
+    watchdog_thread.start()
+
+    app.run(debug=True, host="0.0.0.0", port=5000, threaded=True)
+
+```
+
+### `audio_sync.py`
+
+```python
+"""
+UNREEL V3 – Audio Cross-Correlation Sync
+Synchronizes multiple DJ video clips by finding the clip with the best audio
+quality (highest RMS) and computing FFT-based cross-correlation offsets.
+
+Usage:
+    from analyzer.audio_sync import sync_all_clips
+    offsets = sync_all_clips(["clip1.mov", "clip2.mov", "clip3.mov"])
+    # → {"clip1.mov": 0.0, "clip2.mov": 12.347, "clip3.mov": -3.210}
+"""
+
+import json
+import logging
+from pathlib import Path
+from dataclasses import dataclass, field
+
+import numpy as np
+import librosa
+from scipy.signal import correlate
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SyncResult:
+    """Result of audio synchronization for a set of clips."""
+    reference_clip: str
+    offsets: dict[str, float]  # {clip_path: offset_seconds}
+    rms_values: dict[str, float]  # {clip_path: rms_level}
+    sample_rate: int = 44100
+
+    def to_dict(self) -> dict:
+        return {
+            "reference_clip": self.reference_clip,
+            "offsets": self.offsets,
+            "rms_values": {k: round(v, 6) for k, v in self.rms_values.items()},
+            "sample_rate": self.sample_rate,
+        }
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        logger.info(f"Sync results saved to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Core functions
+# ---------------------------------------------------------------------------
+
+def _load_audio(video_path: str | Path, sr: int = 44100) -> np.ndarray:
+    """Load audio from a video file using librosa. Returns mono float32 array."""
+    path = str(video_path)
+    logger.debug(f"Loading audio: {path}")
+    y, _ = librosa.load(path, sr=sr, mono=True)
+    return y
+
+
+def _compute_rms(y: np.ndarray) -> float:
+    """Compute RMS energy of an audio signal."""
+    return float(np.sqrt(np.mean(y ** 2)))
+
+
+def find_reference_clip(video_paths: list[str | Path], sr: int = 44100) -> tuple[str, np.ndarray, dict[str, float]]:
+    """
+    Find the clip with the highest RMS audio energy (best quality).
+    
+    Returns:
+        (reference_path, reference_audio, rms_dict)
+    """
+    rms_values: dict[str, float] = {}
+    best_path = None
+    best_rms = -1.0
+    best_audio = None
+
+    for vp in video_paths:
+        vp_str = str(vp)
+        try:
+            audio = _load_audio(vp, sr=sr)
+            rms = _compute_rms(audio)
+            rms_values[vp_str] = rms
+            logger.info(f"  {Path(vp_str).name}: RMS={rms:.4f}")
+
+            if rms > best_rms:
+                best_rms = rms
+                best_path = vp_str
+                best_audio = audio
+        except Exception as e:
+            logger.warning(f"  Failed to load {vp_str}: {e}")
+            rms_values[vp_str] = 0.0
+
+    if best_path is None:
+        raise ValueError("No valid audio tracks found in any clip")
+
+    logger.info(f"  → Reference clip: {Path(best_path).name} (RMS={best_rms:.4f})")
+    return best_path, best_audio, rms_values
+
+
+def compute_offset(
+    ref_audio: np.ndarray,
+    target_audio: np.ndarray,
+    sr: int = 44100,
+) -> float:
+    """
+    Compute the time offset (in seconds) between two audio signals
+    using FFT-based cross-correlation.
+    
+    Positive offset means the target starts LATER than the reference.
+    Negative offset means the target starts EARLIER.
+    
+    Uses scipy.signal.correlate with FFT method for performance on CPU.
+    """
+    # Normalize both signals to unit energy for robust correlation
+    ref_norm = ref_audio / (np.std(ref_audio) + 1e-10)
+    target_norm = target_audio / (np.std(target_audio) + 1e-10)
+
+    # Use FFT-based cross-correlation (much faster than direct for long signals)
+    correlation = correlate(ref_norm, target_norm, mode="full", method="fft")
+
+    # Find the peak of the correlation
+    lag_samples = int(np.argmax(correlation))
+
+    # Convert lag to offset in seconds
+    # The zero-lag point is at len(target_norm) - 1
+    zero_lag = len(target_norm) - 1
+    offset_samples = lag_samples - zero_lag
+    offset_seconds = offset_samples / sr
+
+    peak_corr = float(np.max(correlation))
+    logger.debug(f"  Cross-correlation peak: {peak_corr:.2f} at offset={offset_seconds:.3f}s")
+
+    return float(offset_seconds)
+
+
+def sync_all_clips(
+    video_paths: list[str | Path],
+    sr: int = 44100,
+    output_path: Path | None = None,
+) -> SyncResult:
+    """
+    Synchronize all clips to the best-audio reference clip.
+    
+    Args:
+        video_paths: List of video file paths to sync.
+        sr: Sample rate for audio extraction.
+        output_path: Optional path to save results JSON.
+    
+    Returns:
+        SyncResult with offsets relative to the reference clip.
+        The reference clip always has offset 0.0.
+    """
+    if len(video_paths) < 2:
+        raise ValueError("Need at least 2 clips for synchronization")
+
+    logger.info(f"Audio sync: Analyzing {len(video_paths)} clips...")
+
+    # Step 1: Find the reference clip (best audio)
+    ref_path, ref_audio, rms_values = find_reference_clip(video_paths, sr=sr)
+
+    # Step 2: Compute offsets for all other clips
+    offsets: dict[str, float] = {ref_path: 0.0}
+
+    for vp in video_paths:
+        vp_str = str(vp)
+        if vp_str == ref_path:
+            continue
+
+        logger.info(f"  Computing offset for {Path(vp_str).name}...")
+        target_audio = _load_audio(vp_str, sr=sr)
+        offset = compute_offset(ref_audio, target_audio, sr=sr)
+        offsets[vp_str] = round(offset, 3)
+        logger.info(f"    → Offset: {offset:.3f}s")
+
+    result = SyncResult(
+        reference_clip=ref_path,
+        offsets=offsets,
+        rms_values=rms_values,
+        sample_rate=sr,
+    )
+
+    if output_path:
+        result.save(output_path)
+
+    logger.info(f"Audio sync complete. Reference: {Path(ref_path).name}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+    import glob
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m analyzer.audio_sync <video_dir_or_files...>")
+        print("  Example: python -m analyzer.audio_sync input/*.mov")
+        sys.exit(1)
+
+    # Expand glob patterns
+    paths = []
+    for arg in sys.argv[1:]:
+        expanded = glob.glob(arg)
+        paths.extend(expanded)
+
+    if len(paths) < 2:
+        print(f"Error: Found {len(paths)} files. Need at least 2 for sync.")
+        sys.exit(1)
+
+    print(f"Found {len(paths)} clips for sync.\n")
+    result = sync_all_clips(
+        paths,
+        output_path=Path("output/audio_sync.json"),
+    )
+
+    print("\nResults:")
+    for clip, offset in sorted(result.offsets.items(), key=lambda x: x[1]):
+        print(f"  {Path(clip).name:40s}  offset={offset:+.3f}s  RMS={result.rms_values[clip]:.4f}")
+
+```
+
+### `config.py`
+
+```python
+"""
+UNREEL V3 – Configuration
+All settings loaded from environment variables or .env file.
+NEVER hardcode secrets or API keys.
+"""
+
+import os
+from pathlib import Path
+
+# Try to load .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+INPUT_DIR = BASE_DIR / "input"
+OUTPUT_DIR = BASE_DIR / "output"
+LUT_DIR = BASE_DIR / "luts"
+LUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Audio Analysis
+# ---------------------------------------------------------------------------
+
+SAMPLE_RATE = 44100
+AUDIO_SYNC_OUTPUT = OUTPUT_DIR / "audio_sync.json"
+PERCUSSION_OUTPUT = OUTPUT_DIR / "percussion_map.json"
+
+# ---------------------------------------------------------------------------
+# LUT Color Grading
+# ---------------------------------------------------------------------------
+
+DEFAULT_LUT = os.environ.get("DEFAULT_LUT", "underground_dark")
+AVAILABLE_LUTS = ["underground_dark", "vhs_analog", "neon_nights"]
+
+# ---------------------------------------------------------------------------
+# Ollama (Local AI Models)
+# ---------------------------------------------------------------------------
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+GEMMA_MODEL = os.environ.get("GEMMA_MODEL", "gemma4:e2b")
+COPYWRITER_MODEL = os.environ.get("COPYWRITER_MODEL", "llama3.2")
+
+# ---------------------------------------------------------------------------
+# Regie Engine – Multi-Provider AI Configuration
+# ---------------------------------------------------------------------------
+# Active provider: "claude", "gemini", "deepseek", or "auto"
+# "auto" tries providers in order: claude → gemini → deepseek
+
+REGIE_PROVIDER = os.environ.get("REGIE_PROVIDER", "auto")
+
+# --- Anthropic (Claude Fable 5) ---
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-fable-5")
+
+# --- Google Gemini 3.1 Pro ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro")
+
+# --- DeepSeek V4 Pro ---
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+
+# Provider priority order for "auto" mode
+REGIE_PROVIDER_FALLBACK_ORDER = ["deepseek", "claude", "gemini"]
+
+# ---------------------------------------------------------------------------
+# Highlight Scoring Weights (adjusted to include vision)
+# ---------------------------------------------------------------------------
+
+WEIGHT_MOTION = 0.25
+WEIGHT_AUDIO = 0.25
+WEIGHT_SCENE = 0.20
+WEIGHT_LIGHT = 0.15
+WEIGHT_VISION_TAGS = 0.15
+
+# Vision tag bonus scores
+TAG_BONUS_SCORES = {
+    "CROWD_ENERGY": 0.8,
+    "LIGHT_SHOW": 0.5,
+    "DJ_SETUP": 0.3,
+    "TRANSITION": 0.1,
+    "BREAKDOWN": 0.2,
+    "BACKSTAGE": 0.0,
+    "ARRIVAL": 0.0,    # Story-only (pov_story "before"); no highlight bonus
+    "PACKDOWN": 0.0,   # Story-only (pov_story "after"); no highlight bonus
+    "UNUSABLE": -1.0,
+}
+
+# ---------------------------------------------------------------------------
+# Export Settings
+# ---------------------------------------------------------------------------
+
+REEL_WIDTH = 1080
+REEL_HEIGHT = 1920
+REEL_FPS = 30
+REEL_BITRATE = "4M"
+H264_PRESET = "fast"
+H264_CRF = 23
+
+# Slow-Mo threshold
+SLOW_MO_MOTION_THRESHOLD = 0.8
+SLOW_MO_FACTOR = 2.0
+
+# ---------------------------------------------------------------------------
+# Vision Engine
+# ---------------------------------------------------------------------------
+
+VISION_SAMPLE_INTERVAL = 5  # seconds between frame samples
+VISION_BATCH_SIZE = 4
+VISION_CONFIDENCE_THRESHOLD = 0.3
+
+```
+
+### `copywriter.py`
+
+```python
+"""
+UNREEL V3 – Copywriter Engine (Llama 3.2 / Qwen 3 via Ollama)
+Generates filenames and Instagram captions for DJ video clips using a local
+lightweight LLM. Runs entirely on CPU with 30+ tokens/sec.
+
+Usage:
+    from analyzer.copywriter import generate_caption, generate_filename, batch_process
+"""
+
+import json
+import logging
+import re
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+OLLAMA_HOST = "http://localhost:11434"
+COPYWRITER_MODEL = "llama3.2"  # or "qwen3:0.6b" for even faster inference
+
+FILENAME_PROMPT = """Generate a short, descriptive filename for a DJ video clip.
+Rules:
+- Max 40 characters
+- lowercase with underscores only
+- Format: adjective_scene_detail
+- No special chars, no spaces, no numbers at start
+
+Clip info:
+- BPM: {bpm}
+- Tags: {tags}
+- Peak moment: {peak}
+- Duration: {duration}s
+
+Respond with ONLY the filename, nothing else. Example: dark_bassline_crowd_eruption"""
+
+CAPTION_PROMPT = """Write an Instagram caption for a techno DJ video.
+Rules:
+- Max 200 characters
+- Style: Hard Techno / Schranz / Underground
+- Include 5-8 relevant hashtags
+- Authentic, not cheesy
+- Can use emojis sparingly
+
+Clip info:
+- BPM: {bpm}
+- Tags: {tags}
+- Scene: {scene}
+- Vibe: {vibe}
+
+Respond with ONLY the caption text, nothing else."""
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CopyResult:
+    filename: str
+    caption: str
+
+    def to_dict(self) -> dict:
+        return {"filename": self.filename, "caption": self.caption}
+
+
+# ---------------------------------------------------------------------------
+# Ollama interaction
+# ---------------------------------------------------------------------------
+
+def _query_ollama(prompt: str, model: str = COPYWRITER_MODEL, temperature: float = 0.7) -> str:
+    """Send a prompt to the local Ollama model and return the response text."""
+    try:
+        import ollama
+    except ImportError:
+        logger.warning("ollama package not installed. Install with: pip install ollama")
+        return ""
+
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": temperature},
+        )
+        return response["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(f"Ollama copywriting error: {e}")
+        return ""
+
+
+def _clean_filename(raw: str) -> str:
+    """Sanitize a generated filename."""
+    # Remove quotes, extra whitespace
+    cleaned = raw.strip().strip('"\'`')
+    # Replace spaces/hyphens with underscores
+    cleaned = re.sub(r"[\s\-]+", "_", cleaned)
+    # Remove anything that's not alphanumeric or underscore
+    cleaned = re.sub(r"[^a-z0-9_]", "", cleaned.lower())
+    # Truncate
+    cleaned = cleaned[:40]
+    # Remove trailing underscores
+    cleaned = cleaned.strip("_")
+    return cleaned or "unnamed_clip"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def generate_filename(
+    clip_metadata: dict,
+    model: str = COPYWRITER_MODEL,
+) -> str:
+    """
+    Generate a descriptive filename for a DJ clip.
+    
+    Args:
+        clip_metadata: Dict with keys like 'bpm', 'tags', 'peak', 'duration'
+    
+    Returns:
+        Clean filename string (e.g., 'dark_bassline_crowd_eruption')
+    """
+    prompt = FILENAME_PROMPT.format(
+        bpm=clip_metadata.get("bpm", "unknown"),
+        tags=", ".join(clip_metadata.get("tags", ["techno"])),
+        peak=clip_metadata.get("peak", "bass drop"),
+        duration=clip_metadata.get("duration", 30),
+    )
+
+    raw = _query_ollama(prompt, model=model, temperature=0.5)
+    filename = _clean_filename(raw)
+
+    if not filename or filename == "unnamed_clip":
+        # Fallback: build from metadata
+        bpm = clip_metadata.get("bpm", 140)
+        tag = clip_metadata.get("tags", ["techno"])[0].lower()
+        filename = f"techno_{tag}_{bpm}bpm"
+
+    logger.info(f"Generated filename: {filename}")
+    return filename
+
+
+def generate_caption(
+    clip_metadata: dict,
+    style: str = "techno",
+    model: str = COPYWRITER_MODEL,
+) -> str:
+    """
+    Generate an Instagram caption for a DJ video clip.
+    
+    Args:
+        clip_metadata: Dict with keys like 'bpm', 'tags', 'scene', 'vibe'
+        style: Style preset ('techno', 'house', 'minimal')
+    
+    Returns:
+        Caption string with hashtags
+    """
+    vibe_map = {
+        "techno": "dark, underground, raw energy",
+        "house": "groovy, uplifting, soulful",
+        "minimal": "deep, hypnotic, subtle",
+    }
+
+    prompt = CAPTION_PROMPT.format(
+        bpm=clip_metadata.get("bpm", "unknown"),
+        tags=", ".join(clip_metadata.get("tags", ["techno"])),
+        scene=clip_metadata.get("scene", "DJ performance"),
+        vibe=vibe_map.get(style, vibe_map["techno"]),
+    )
+
+    caption = _query_ollama(prompt, model=model, temperature=0.8)
+
+    if not caption:
+        # Fallback caption
+        caption = (
+            "When the bass hits different at 2am 🔊⚡ "
+            f"#techno #hardtechno #schranz #djlife #raveCulture #underground"
+        )
+
+    # Ensure it's not too long for Instagram
+    if len(caption) > 2200:
+        caption = caption[:2197] + "..."
+
+    logger.info(f"Generated caption ({len(caption)} chars)")
+    return caption
+
+
+def batch_process(
+    clips: list[dict],
+    style: str = "techno",
+    model: str = COPYWRITER_MODEL,
+) -> list[CopyResult]:
+    """
+    Process multiple clips and generate filenames + captions.
+    
+    Args:
+        clips: List of clip metadata dicts
+        style: Caption style preset
+    
+    Returns:
+        List of CopyResult objects
+    """
+    results = []
+
+    for i, clip_meta in enumerate(clips):
+        logger.info(f"Copywriting clip {i + 1}/{len(clips)}...")
+        filename = generate_filename(clip_meta, model=model)
+        caption = generate_caption(clip_meta, style=style, model=model)
+        results.append(CopyResult(filename=filename, caption=caption))
+
+    return results
+
+
+def save_captions(results: list[CopyResult], output_path: Path) -> None:
+    """Save caption results to JSON."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    data = [{"filename": r.filename, "caption": r.caption} for r in results]
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    logger.info(f"Saved {len(results)} captions to {output_path}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m analyzer.copywriter <command> [args]")
+        print("  Commands: filename <bpm> <tags> | caption <bpm> <tags> | demo")
+        sys.exit(1)
+
+    cmd = sys.argv[1]
+
+    if cmd == "demo":
+        demo_meta = {"bpm": 145, "tags": ["CROWD_ENERGY", "DROP"], "peak": "bass drop", "duration": 30}
+        print("Demo copywriting:\n")
+        fn = generate_filename(demo_meta)
+        cap = generate_caption(demo_meta)
+        print(f"Filename: {fn}")
+        print(f"Caption:  {cap}")
+    elif cmd == "filename" and len(sys.argv) >= 4:
+        meta = {"bpm": sys.argv[2], "tags": sys.argv[3:], "peak": "drop"}
+        print(generate_filename(meta))
+    elif cmd == "caption" and len(sys.argv) >= 4:
+        meta = {"bpm": sys.argv[2], "tags": sys.argv[3:], "scene": "DJ set"}
+        print(generate_caption(meta))
+    else:
+        print("Unknown command or missing args")
+
+```
+
+### `integration_flask_endpoints.py`
+
+```python
+"""
+UNREEL V3 – Flask API Integration Patches (Multi-Provider)
+These are the endpoint additions for your existing Flask app.py.
+Copy these routes into your existing application.
+
+Changes from v1:
+  - Multi-provider AI regie (Claude, Gemini, DeepSeek)
+  - Provider selection via ?provider= query param
+  - Multi-provider comparison endpoint
+"""
+
+
+# ---------------------------------------------------------------------------
+# GET /api/providers
+# List available AI providers and their status.
+# ---------------------------------------------------------------------------
+
+"""
+@app.route("/api/providers", methods=["GET"])
+def api_providers():
+    from regie_engine import list_available_providers
+    return jsonify({"providers": list_available_providers()})
+"""
+
+
+# ---------------------------------------------------------------------------
+# POST /api/sync/compute
+# Compute audio sync offsets for all videos in the input directory.
+# ---------------------------------------------------------------------------
+
+"""
+@app.route("/api/sync/compute", methods=["POST"])
+def api_sync_compute():
+    from audio_sync import sync_all_clips
+    from kick_snare_detector import detect_kicks_snares
+    from config import INPUT_DIR, OUTPUT_DIR
+
+    video_paths = sorted([
+        str(p) for p in INPUT_DIR.glob("*")
+        if p.suffix.lower() in {".mov", ".mp4", ".avi", ".mkv"}
+    ])
+
+    if len(video_paths) < 2:
+        return jsonify({"error": "Need at least 2 clips for sync"}), 400
+
+    def _run_sync():
+        result = sync_all_clips(video_paths, output_path=OUTPUT_DIR / "audio_sync.json")
+        percussion = detect_kicks_snares(result.reference_clip)
+        percussion.save(OUTPUT_DIR / "percussion_map.json")
+
+    import threading
+    thread = threading.Thread(target=_run_sync)
+    thread.start()
+
+    return jsonify({"status": "sync_started", "clip_count": len(video_paths)})
+"""
+
+
+# ---------------------------------------------------------------------------
+# POST /api/export/ai_reel
+# Generate an AI-directed reel using the specified provider.
+# ---------------------------------------------------------------------------
+
+"""
+@app.route("/api/export/ai_reel", methods=["POST"])
+def api_ai_reel():
+    from regie_engine import generate_edit_plan, generate_multi_plan
+    from config import OUTPUT_DIR
+
+    data = request.json or {}
+    duration = data.get("duration", 60)
+    style = data.get("style", "highlight")
+    target_bpm = data.get("target_bpm", 0)
+    provider = data.get("provider", "auto")  # "claude", "gemini", "deepseek", "auto"
+    multi = data.get("multi", False)         # Generate from all providers
+
+    analysis_path = OUTPUT_DIR / "pipeline_results.json"
+    if not analysis_path.exists():
+        return jsonify({"error": "Run analysis first"}), 400
+
+    with open(analysis_path) as f:
+        analysis = json.load(f)
+
+    try:
+        if multi:
+            plans = generate_multi_plan(analysis, preset=style, duration=duration)
+            result = {
+                name: plan.to_dict()
+                for name, plan in plans.items()
+            }
+            return jsonify({"status": "multi_complete", "plans": result})
+
+        plan = generate_edit_plan(
+            analysis,
+            preset=style,
+            duration=duration,
+            target_bpm=target_bpm,
+            provider=provider,
+            output_path=OUTPUT_DIR / "edit_plan.json",
+        )
+        return jsonify(plan.to_dict())
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+"""
+
+
+# ---------------------------------------------------------------------------
+# POST /api/captions/generate
+# Generate captions for all exported files.
+# ---------------------------------------------------------------------------
+
+"""
+@app.route("/api/captions/generate", methods=["POST"])
+def api_captions_generate():
+    from copywriter import batch_process, save_captions
+    from config import OUTPUT_DIR
+
+    data = request.json or {}
+    style = data.get("style", "techno")
+
+    clips = []
+    for p in sorted(OUTPUT_DIR.glob("snippet_*.mp4")):
+        clips.append({
+            "filename": p.name,
+            "tags": ["techno"],
+            "bpm": 140,
+            "duration": 10,
+        })
+
+    if not clips:
+        return jsonify({"error": "No exported clips found"}), 400
+
+    results = batch_process(clips, style=style)
+    save_captions(results, OUTPUT_DIR / "captions.json")
+
+    return jsonify({"captions": [r.to_dict() for r in results]})
+"""
+
+```
+
+### `kick_snare_detector.py`
+
+```python
+"""
+UNREEL V3 – Kick/Snare Detection Module
+Extends the existing librosa-based audio analysis with percussive element detection.
+Identifies kicks (bass < 200Hz) and snares (mid/high 2kHz-8kHz) for precise beat-cutting.
+
+Usage:
+    from analyzer.kick_snare_detector import detect_kicks_snares
+    result = detect_kicks_snares("input/clip.mov")
+    # → {"kicks": [{"time": 1.23, "intensity": 0.85}], "snares": [...]}
+"""
+
+import json
+import logging
+from pathlib import Path
+from dataclasses import dataclass
+
+import numpy as np
+import librosa
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PercussiveHit:
+    time: float        # Time in seconds
+    intensity: float   # 0.0 to 1.0
+
+    def to_dict(self) -> dict:
+        return {"time": round(self.time, 3), "intensity": round(self.intensity, 3)}
+
+
+@dataclass
+class PercussionMap:
+    kicks: list[PercussiveHit]
+    snares: list[PercussiveHit]
+    bpm: float = 0.0
+    duration: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "kicks": [k.to_dict() for k in self.kicks],
+            "snares": [s.to_dict() for s in self.snares],
+            "kick_count": len(self.kicks),
+            "snare_count": len(self.snares),
+            "bpm": round(self.bpm, 1),
+            "duration": round(self.duration, 2),
+        }
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        logger.info(f"Percussion map saved to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Detection functions
+# ---------------------------------------------------------------------------
+
+def _detect_kicks(y: np.ndarray, sr: int = 44100) -> list[PercussiveHit]:
+    """
+    Detect kick drums by analyzing the bass frequency band (< 200 Hz).
+    Uses onset detection on the low-frequency Mel-spectrogram.
+    """
+    # Isolate bass frequencies
+    S_bass = librosa.feature.melspectrogram(
+        y=y, sr=sr, n_mels=64, fmin=20, fmax=200,
+        hop_length=512,
+    )
+    S_bass_db = librosa.power_to_db(S_bass, ref=np.max)
+
+    # Onset detection on bass
+    onset_env = librosa.onset.onset_strength(
+        S=S_bass_db, sr=sr, hop_length=512,
+    )
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env, sr=sr,
+        hop_length=512, backtrack=True,
+    )
+
+    # Convert frames to times and compute intensities
+    times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+
+    kicks = []
+    for i, frame in enumerate(onset_frames):
+        # Intensity from the onset envelope
+        intensity = float(np.clip(onset_env[frame] / (np.max(onset_env) + 1e-10), 0, 1))
+        if intensity > 0.15:  # Filter weak detections
+            kicks.append(PercussiveHit(time=float(times[i]), intensity=intensity))
+
+    logger.info(f"  Detected {len(kicks)} kicks")
+    return kicks
+
+
+def _detect_snares(y: np.ndarray, sr: int = 44100) -> list[PercussiveHit]:
+    """
+    Detect snares/claps by analyzing the mid/high frequency band (2kHz - 8kHz).
+    Uses onset detection on the high-frequency Mel-spectrogram.
+    """
+    # Isolate mid/high frequencies
+    S_high = librosa.feature.melspectrogram(
+        y=y, sr=sr, n_mels=64, fmin=2000, fmax=8000,
+        hop_length=512,
+    )
+    S_high_db = librosa.power_to_db(S_high, ref=np.max)
+
+    # Onset detection on highs
+    onset_env = librosa.onset.onset_strength(
+        S=S_high_db, sr=sr, hop_length=512,
+    )
+    onset_frames = librosa.onset.onset_detect(
+        onset_envelope=onset_env, sr=sr,
+        hop_length=512, backtrack=True,
+    )
+
+    times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+
+    snares = []
+    for i, frame in enumerate(onset_frames):
+        intensity = float(np.clip(onset_env[frame] / (np.max(onset_env) + 1e-10), 0, 1))
+        if intensity > 0.2:  # Slightly higher threshold for snares
+            snares.append(PercussiveHit(time=float(times[i]), intensity=intensity))
+
+    logger.info(f"  Detected {len(snares)} snares")
+    return snares
+
+
+def _get_bpm(y: np.ndarray, sr: int = 44100) -> float:
+    """Get BPM from audio using librosa's beat tracker."""
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    if isinstance(tempo, np.ndarray):
+        tempo = float(tempo[0])
+    return float(tempo)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def detect_kicks_snares(
+    video_or_audio_path: str | Path,
+    sr: int = 44100,
+) -> PercussionMap:
+    """
+    Detect kicks and snares in an audio file or video file.
+    
+    Args:
+        video_or_audio_path: Path to video or audio file
+        sr: Sample rate
+    
+    Returns:
+        PercussionMap with kick and snare timestamps + intensities
+    """
+    path = str(video_or_audio_path)
+    logger.info(f"Detecting percussion in {Path(path).name}...")
+
+    # Load audio (librosa handles video containers too)
+    y, _ = librosa.load(path, sr=sr, mono=True)
+    duration = float(len(y) / sr)
+
+    # BPM
+    bpm = _get_bpm(y, sr)
+    logger.info(f"  BPM: {bpm:.1f}, Duration: {duration:.1f}s")
+
+    # Detect kicks and snares
+    kicks = _detect_kicks(y, sr)
+    snares = _detect_snares(y, sr)
+
+    return PercussionMap(
+        kicks=kicks,
+        snares=snares,
+        bpm=bpm,
+        duration=duration,
+    )
+
+
+def get_beat_grid(
+    percussion_map: PercussionMap,
+    bpm: float | None = None,
+) -> list[dict]:
+    """
+    Combine kicks and snares into a unified beat grid for edit decisions.
+    Returns sorted list of {"time": float, "type": "kick"|"snare", "intensity": float}
+    """
+    bpm = bpm or percussion_map.bpm
+    beats = []
+
+    for k in percussion_map.kicks:
+        beats.append({"time": k.time, "type": "kick", "intensity": k.intensity})
+    for s in percussion_map.snares:
+        beats.append({"time": s.time, "type": "snare", "intensity": s.intensity})
+
+    beats.sort(key=lambda x: x["time"])
+    return beats
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m analyzer.kick_snare_detector <audio_or_video_path>")
+        sys.exit(1)
+
+    path = sys.argv[1]
+    result = detect_kicks_snares(path)
+
+    print(f"\nPercussion Map: {result.bpm:.1f} BPM, {result.duration:.1f}s")
+    print(f"  Kicks:  {result.kicks.__len__()}")
+    print(f"  Snares: {result.snares.__len__()}")
+
+    print("\nFirst 10 kicks:")
+    for k in result.kicks[:10]:
+        print(f"    t={k.time:7.3f}s  intensity={k.intensity:.3f}")
+
+    print("\nFirst 10 snares:")
+    for s in result.snares[:10]:
+        print(f"    t={s.time:7.3f}s  intensity={s.intensity:.3f}")
+
+```
+
+### `lut_generator.py`
+
+```python
+"""
+UNREEL V3 – LUT Generator
+Programmatically generates .cube LUT files for underground techno color grading.
+Replaces the previous eq-filter approach with professional 3D-LUT color grading.
+
+Usage:
+    python -m analyzer.lut_generator
+    → Generates all .cube files into luts/
+"""
+
+import os
+import numpy as np
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# LUT configuration
+# ---------------------------------------------------------------------------
+LUT_DIR = Path(__file__).resolve().parent / "luts"
+LUT_SIZE = 33  # 33x33x33 cube – standard for most NLEs and FFmpeg
+
+# ---------------------------------------------------------------------------
+# Color math helpers
+# ---------------------------------------------------------------------------
+
+def _srgb_to_linear(c: float) -> float:
+    """Convert sRGB [0,1] to linear [0,1]."""
+    if c <= 0.04045:
+        return c / 12.92
+    return ((c + 0.055) / 1.055) ** 2.4
+
+
+def _linear_to_srgb(c: float) -> float:
+    """Convert linear [0,1] to sRGB [0,1]."""
+    if c <= 0.0031308:
+        return c * 12.92
+    return 1.055 * (c ** (1.0 / 2.4)) - 0.055
+
+
+def _clamp(v: float) -> float:
+    return max(0.0, min(1.0, v))
+
+
+# ---------------------------------------------------------------------------
+# LUT transform functions (input: R,G,B in [0,1] → output: R,G,B in [0,1])
+# ---------------------------------------------------------------------------
+
+def _transform_underground_dark(r: float, g: float, b: float) -> tuple[float, float, float]:
+    """
+    Underground Dark Techno Look:
+    - Crushed blacks (lift shadows into near-black)
+    - Cyan/teal shadow tint
+    - Desaturated midtones
+    - Slightly warm highlights
+    - Overall contrast boost
+    """
+    # Convert to linear for processing
+    rl, gl, bl = _srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b)
+
+    # Step 1: Crush blacks – apply a power curve to push shadows down
+    crush_power = 1.4
+    rl = rl ** crush_power
+    gl = gl ** crush_power
+    bl = bl ** crush_power
+
+    # Step 2: Desaturate (mix towards luminance)
+    lum = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+    desat_amount = 0.35
+    rl = rl * (1 - desat_amount) + lum * desat_amount
+    gl = gl * (1 - desat_amount) + lum * desat_amount
+    bl = bl * (1 - desat_amount) + lum * desat_amount
+
+    # Step 3: Cyan tint in shadows (add blue-green to low values)
+    cyan_strength = 0.08
+    shadow_mask = max(0.0, 1.0 - lum * 3.0)  # fades out in midtones
+    bl += cyan_strength * shadow_mask
+    gl += cyan_strength * 0.3 * shadow_mask
+
+    # Step 4: Warm tint in highlights
+    highlight_mask = max(0.0, (lum - 0.5) * 2.0)
+    rl += 0.03 * highlight_mask
+
+    # Step 5: Contrast S-curve (in linear)
+    contrast = 1.15
+    rl = 0.5 + (rl - 0.5) * contrast
+    gl = 0.5 + (gl - 0.5) * contrast
+    bl = 0.5 + (bl - 0.5) * contrast
+
+    return _clamp(rl), _clamp(gl), _clamp(bl)
+
+
+def _transform_vhs_analog(r: float, g: float, b: float) -> tuple[float, float, float]:
+    """
+    VHS Analog Look:
+    - Color bleed (red channel shifted)
+    - Raised blacks (milky shadows)
+    - Reduced contrast
+    - Slight green color cast
+    - Faded highlights
+    """
+    rl, gl, bl = r, g, b  # Work in sRGB for this one
+
+    # Step 1: Raise blacks
+    black_lift = 0.06
+    rl = rl * 0.92 + black_lift
+    gl = gl * 0.92 + black_lift
+    bl = bl * 0.92 + black_lift
+
+    # Step 2: Color bleed – shift red channel slightly (simulate chroma shift)
+    lum = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+    rl = rl * 0.9 + lum * 0.1  # Red bleeds towards luminance
+
+    # Step 3: Green/warm cast
+    gl += 0.02
+    bl -= 0.01
+
+    # Step 4: Reduce contrast
+    contrast = 0.85
+    rl = 0.5 + (rl - 0.5) * contrast
+    gl = 0.5 + (gl - 0.5) * contrast
+    bl = 0.5 + (bl - 0.5) * contrast
+
+    # Step 5: Desaturate slightly
+    desat = 0.15
+    rl = rl * (1 - desat) + lum * desat
+    gl = gl * (1 - desat) + lum * desat
+    bl = bl * (1 - desat) + lum * desat
+
+    # Step 6: Clip highlights (faded look)
+    rl = min(rl, 0.95)
+    gl = min(gl, 0.95)
+    bl = min(bl, 0.95)
+
+    return _clamp(rl), _clamp(gl), _clamp(bl)
+
+
+def _transform_neon_nights(r: float, g: float, b: float) -> tuple[float, float, float]:
+    """
+    Neon Nights Look:
+    - Crushed blacks
+    - Highly saturated colors
+    - Magenta/blue highlight tint
+    - Electric feel for light show clips
+    """
+    rl = _srgb_to_linear(r)
+    gl = _srgb_to_linear(g)
+    bl = _srgb_to_linear(b)
+
+    # Step 1: Crush blacks hard
+    rl = max(0, (rl - 0.05)) ** 1.3
+    gl = max(0, (gl - 0.05)) ** 1.3
+    bl = max(0, (bl - 0.05)) ** 1.3
+
+    # Step 2: Boost saturation significantly
+    lum = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+    sat_boost = 1.5
+    rl = lum + (rl - lum) * sat_boost
+    gl = lum + (gl - lum) * sat_boost
+    bl = lum + (bl - lum) * sat_boost
+
+    # Step 3: Magenta/blue tint in highlights
+    highlight_mask = max(0.0, (lum - 0.3) * 1.5)
+    rl += 0.04 * highlight_mask
+    bl += 0.06 * highlight_mask
+
+    # Step 4: Strong contrast
+    contrast = 1.25
+    rl = 0.5 + (rl - 0.5) * contrast
+    gl = 0.5 + (gl - 0.5) * contrast
+    bl = 0.5 + (bl - 0.5) * contrast
+
+    return _clamp(rl), _clamp(gl), _clamp(bl)
+
+
+# ---------------------------------------------------------------------------
+# .cube file writer
+# ---------------------------------------------------------------------------
+
+def _generate_cube_file(
+    transform_fn,
+    output_path: Path,
+    lut_name: str,
+    size: int = LUT_SIZE,
+) -> None:
+    """Generate an Adobe .cube LUT file from a transform function."""
+    total_entries = size ** 3
+    print(f"Generating '{lut_name}' ({size}^3 = {total_entries} entries)...")
+
+    with open(output_path, "w") as f:
+        # Header
+        f.write(f'TITLE "{lut_name}"\n')
+        f.write(f'LUT_3D_SIZE {size}\n')
+        f.write("DOMAIN_MIN 0.0 0.0 0.0\n")
+        f.write("DOMAIN_MAX 1.0 1.0 1.0\n")
+        f.write("\n")
+
+        # Generate LUT entries
+        # .cube format iterates: R changes fastest, then G, then B
+        for b_idx in range(size):
+            for g_idx in range(size):
+                for r_idx in range(size):
+                    r_in = r_idx / (size - 1)
+                    g_in = g_idx / (size - 1)
+                    b_in = b_idx / (size - 1)
+
+                    r_out, g_out, b_out = transform_fn(r_in, g_in, b_in)
+
+                    # Convert linear back to sRGB for underground/neon transforms
+                    if transform_fn in (_transform_underground_dark, _transform_neon_nights):
+                        r_out = _linear_to_srgb(r_out)
+                        g_out = _linear_to_srgb(g_out)
+                        b_out = _linear_to_srgb(b_out)
+
+                    f.write(f"{r_out:.6f} {g_out:.6f} {b_out:.6f}\n")
+
+    size_kb = output_path.stat().st_size / 1024
+    print(f"  Written to {output_path} ({size_kb:.0f} KB)")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def generate_all_luts(output_dir: Path | None = None) -> dict[str, Path]:
+    """Generate all LUT files. Returns dict of {name: path}."""
+    out = output_dir or LUT_DIR
+    out.mkdir(parents=True, exist_ok=True)
+
+    luts = {
+        "underground_dark": (_transform_underground_dark, out / "underground_dark.cube"),
+        "vhs_analog": (_transform_vhs_analog, out / "vhs_analog.cube"),
+        "neon_nights": (_transform_neon_nights, out / "neon_nights.cube"),
+    }
+
+    for name, (fn, path) in luts.items():
+        _generate_cube_file(fn, path, name)
+
+    return {name: path for name, (_, path) in luts.items()}
+
+
+def get_lut_path(lut_name: str, lut_dir: Path | None = None) -> Path:
+    """Resolve a LUT name to its .cube file path."""
+    d = lut_dir or LUT_DIR
+    path = d / f"{lut_name}.cube"
+    if not path.exists():
+        raise FileNotFoundError(f"LUT file not found: {path}. Run lut_generator first.")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    print("UNREEL V3 – LUT Generator")
+    print("=" * 40)
+    paths = generate_all_luts()
+    print(f"\nDone. Generated {len(paths)} LUT files in {LUT_DIR}/")
+
+```
+
+### `main.py`
+
+```python
+import sys
+import subprocess
+from pathlib import Path
+
+# Simply delegate to the src.main module
+if __name__ == "__main__":
+    # Ensure project root is in path
+    root = Path(__file__).resolve().parent
+    sys.path.insert(0, str(root))
+    
+    from src.main import main
+    main()
+
+```
+
+### `regie_engine.py`
+
+```python
+"""
+UNREEL V3 – Regie Engine (Multi-Provider)
+Uses Claude Fable 5, Gemini 3.1 Pro, or DeepSeek V4 Pro as the creative director
+to plan millisecond-precise edits based on audio/video analysis metadata.
+Generates structured edit plans (Schnittlisten) with automatic provider fallback.
+
+Usage:
+    from analyzer.regie_engine import generate_edit_plan, verify_edit_plan
+    plan = generate_edit_plan(analysis_data, preset="highlight", duration=60)
+
+    # Explicit provider:
+    plan = generate_edit_plan(data, provider="gemini")
+    plan = generate_edit_plan(data, provider="deepseek")
+    plan = generate_edit_plan(data, provider="claude")
+
+CLI:
+    python -m analyzer.regie_engine analysis.json --provider gemini --preset highlight
+"""
+
+import importlib.util
+import json
+import logging
+import os
+import time
+from abc import ABC, abstractmethod
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Optional, Protocol
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration (loaded from config module / .env)
+# ---------------------------------------------------------------------------
+
+from config import (
+    REGIE_PROVIDER,
+    REGIE_PROVIDER_FALLBACK_ORDER,
+    ANTHROPIC_API_KEY,
+    CLAUDE_MODEL,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_MODEL,
+    DEEPSEEK_BASE_URL,
+)
+
+# ---------------------------------------------------------------------------
+# SDK availability helper
+# ---------------------------------------------------------------------------
+
+def _sdk_installed(module_name: str) -> bool:
+    """True if the given SDK module can be imported (without importing it)."""
+    return importlib.util.find_spec(module_name) is not None
+
+
+# ---------------------------------------------------------------------------
+# Data classes (shared across all providers)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EditClip:
+    """A single clip in the edit plan."""
+    video: str
+    start: float
+    end: float
+    transition: str
+    reason: str
+    crop: str = "9:16"
+    lut: str = "underground_dark"
+    slow_mo: bool = False
+    slow_mo_factor: float = 1.0
+    phase: str = ""  # Story phase for pov_story preset: "before" | "during" | "after"
+
+    def to_dict(self) -> dict:
+        return {
+            "video": self.video,
+            "start": round(self.start, 3),
+            "end": round(self.end, 3),
+            "duration": round(self.end - self.start, 3),
+            "transition": self.transition,
+            "reason": self.reason,
+            "crop": self.crop,
+            "lut": self.lut,
+            "slow_mo": self.slow_mo,
+            "slow_mo_factor": self.slow_mo_factor,
+            "phase": self.phase,
+        }
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+@dataclass
+class EditPlan:
+    """Complete edit plan generated by AI."""
+    clips: list[EditClip]
+    narrative: str
+    total_duration: float
+    target_bpm: float = 0.0
+    style: str = "highlight"
+    hook_text: str = ""           # Anti-advice hook line (pov_story preset, first ~3s)
+    provider_used: str = ""       # Which AI generated this plan
+    model_used: str = ""          # Exact model identifier
+    generation_time_s: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "clips": [c.to_dict() for c in self.clips],
+            "narrative": self.narrative,
+            "hook_text": self.hook_text,
+            "total_duration": round(self.total_duration, 3),
+            "target_bpm": self.target_bpm,
+            "style": self.style,
+            "clip_count": len(self.clips),
+            "provider_used": self.provider_used,
+            "model_used": self.model_used,
+            "generation_time_s": round(self.generation_time_s, 2),
+        }
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+        logger.info(f"Edit plan saved to {path}")
+
+    def to_ffmpeg_commands(self, output_dir: Path = Path("output")) -> list[str]:
+        """Convert the edit plan to FFmpeg command strings for execution."""
+        commands = []
+        for i, clip in enumerate(self.clips):
+            vf_parts = []
+
+            if clip.crop == "9:16":
+                vf_parts.append("crop=ih*9/16:ih,scale=1080:1920")
+            elif clip.crop == "16:9":
+                vf_parts.append("scale=1920:1080")
+
+            if clip.lut and clip.lut != "none":
+                vf_parts.append(f"lut3d=luts/{clip.lut}.cube")
+
+            if clip.slow_mo and clip.slow_mo_factor > 1.0:
+                vf_parts.insert(0, f"setpts=PTS*{clip.slow_mo_factor}")
+
+            vf = ",".join(vf_parts) if vf_parts else None
+
+            output_name = f"snippet_{i + 1:03d}_{Path(clip.video).stem}.mp4"
+            output_path = output_dir / output_name
+
+            cmd_parts = [
+                "ffmpeg", "-y",
+                "-ss", f"{clip.start:.3f}",
+                "-to", f"{clip.end:.3f}",
+                "-i", clip.video,
+            ]
+            if vf:
+                cmd_parts.extend(["-vf", vf])
+            cmd_parts.extend([
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(output_path),
+            ])
+            commands.append(" ".join(cmd_parts))
+
+        return commands
+
+
+# ---------------------------------------------------------------------------
+# Provider Protocol
+# ---------------------------------------------------------------------------
+
+class RegieProvider(Protocol):
+    """Interface that all AI providers must implement."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def model_id(self) -> str: ...
+
+    def is_available(self) -> bool: ...
+
+    def call(
+        self,
+        system_prompt: str,
+        user_data: str,
+        temperature: float = 0.4,
+        max_tokens: int = 8192,
+    ) -> str: ...
+
+
+# ---------------------------------------------------------------------------
+# Provider: Claude Fable 5 (Anthropic)
+# ---------------------------------------------------------------------------
+
+class ClaudeProvider:
+    """Anthropic Claude provider – Claude Fable 5."""
+
+    def __init__(
+        self,
+        api_key: str = ANTHROPIC_API_KEY,
+        model: str = CLAUDE_MODEL,
+    ):
+        self._api_key = api_key
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return "claude"
+
+    @property
+    def model_id(self) -> str:
+        return self._model
+
+    def is_available(self) -> bool:
+        return bool(self._api_key) and _sdk_installed("anthropic")
+
+    def call(
+        self,
+        system_prompt: str,
+        user_data: str,
+        temperature: float = 0.4,
+        max_tokens: int = 8192,
+    ) -> str:
+        if not self._api_key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+
+        try:
+            import anthropic
+        except ImportError:
+            raise ImportError("anthropic not installed. Run: pip install anthropic")
+
+        client = anthropic.Anthropic(api_key=self._api_key)
+
+        logger.info(f"  → Calling {self._model} (Anthropic)...")
+
+        response = client.messages.create(
+            model=self._model,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_data}],
+            temperature=temperature,
+        )
+
+        return response.content[0].text
+
+
+# ---------------------------------------------------------------------------
+# Provider: Gemini 3.1 Pro (Google)
+# ---------------------------------------------------------------------------
+
+class GeminiProvider:
+    """Google Gemini provider – Gemini 3.1 Pro."""
+
+    def __init__(
+        self,
+        api_key: str = GEMINI_API_KEY,
+        model: str = GEMINI_MODEL,
+    ):
+        self._api_key = api_key
+        self._model = model
+
+    @property
+    def name(self) -> str:
+        return "gemini"
+
+    @property
+    def model_id(self) -> str:
+        return self._model
+
+    def is_available(self) -> bool:
+        return bool(self._api_key) and _sdk_installed("google.generativeai")
+
+    def call(
+        self,
+        system_prompt: str,
+        user_data: str,
+        temperature: float = 0.4,
+        max_tokens: int = 8192,
+    ) -> str:
+        if not self._api_key:
+            raise ValueError("GEMINI_API_KEY not set")
+
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise ImportError("google-generativeai not installed. Run: pip install google-generativeai")
+
+        genai.configure(api_key=self._api_key)
+
+        model = genai.GenerativeModel(
+            model_name=self._model,
+            system_instruction=system_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                response_mime_type="application/json",  # Force JSON output
+            ),
+        )
+
+        logger.info(f"  → Calling {self._model} (Google Gemini)...")
+
+        response = model.generate_content(user_data)
+
+        return response.text
+
+
+# ---------------------------------------------------------------------------
+# Provider: DeepSeek V4 Pro
+# ---------------------------------------------------------------------------
+
+class DeepSeekProvider:
+    """DeepSeek provider – V4 Pro via OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        api_key: str = DEEPSEEK_API_KEY,
+        model: str = DEEPSEEK_MODEL,
+        base_url: str = DEEPSEEK_BASE_URL,
+    ):
+        self._api_key = api_key
+        self._model = model
+        self._base_url = base_url
+
+    @property
+    def name(self) -> str:
+        return "deepseek"
+
+    @property
+    def model_id(self) -> str:
+        return self._model
+
+    def is_available(self) -> bool:
+        return bool(self._api_key) and _sdk_installed("openai")
+
+    def call(
+        self,
+        system_prompt: str,
+        user_data: str,
+        temperature: float = 0.4,
+        max_tokens: int = 8192,
+    ) -> str:
+        if not self._api_key:
+            raise ValueError("DEEPSEEK_API_KEY not set")
+
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError("openai not installed. Run: pip install openai")
+
+        client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+        )
+
+        logger.info(f"  → Calling {self._model} (DeepSeek)...")
+
+        response = client.chat.completions.create(
+            model=self._model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_object"},  # Force JSON
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_data},
+            ],
+        )
+
+        return response.choices[0].message.content
+
+
+# ---------------------------------------------------------------------------
+# Provider Registry & Resolution
+# ---------------------------------------------------------------------------
+
+def get_provider(provider_name: str = "") -> RegieProvider:
+    """
+    Instantiate a provider by name. Empty string uses REGIE_PROVIDER from config.
+    Raises ValueError if the provider is not available (missing API key).
+    """
+    name = provider_name or REGIE_PROVIDER
+    name = name.lower().strip()
+
+    providers: dict[str, type] = {
+        "claude": ClaudeProvider,
+        "gemini": GeminiProvider,
+        "deepseek": DeepSeekProvider,
+    }
+
+    if name not in providers:
+        raise ValueError(f"Unknown provider '{name}'. Choose from: {', '.join(providers)}")
+
+    return providers[name]()
+
+
+def resolve_provider(provider_name: str = "") -> RegieProvider:
+    """
+    Resolve the active provider. Handles "auto" mode by trying each provider
+    in fallback order until one with a configured API key is found.
+    """
+    name = (provider_name or REGIE_PROVIDER).lower().strip()
+
+    if name != "auto":
+        provider = get_provider(name)
+        if not provider.is_available():
+            raise ValueError(
+                f"Provider '{name}' is not available – "
+                f"the required API key is not set in .env or environment."
+            )
+        return provider
+
+    # Auto mode: try each provider in fallback order
+    logger.info(f"Auto-selecting provider (fallback order: {' → '.join(REGIE_PROVIDER_FALLBACK_ORDER)})...")
+
+    for candidate_name in REGIE_PROVIDER_FALLBACK_ORDER:
+        try:
+            provider = get_provider(candidate_name)
+            if provider.is_available():
+                logger.info(f"  ✓ Selected: {provider.name} ({provider.model_id})")
+                return provider
+            else:
+                logger.debug(f"  ✗ {candidate_name}: API key not set")
+        except Exception as e:
+            logger.debug(f"  ✗ {candidate_name}: {e}")
+
+    raise ValueError(
+        "No AI provider available. Set at least one API key in .env:\n"
+        "  ANTHROPIC_API_KEY=...  (Claude Fable 5)\n"
+        "  GEMINI_API_KEY=...     (Gemini 3.1 Pro)\n"
+        "  DEEPSEEK_API_KEY=...   (DeepSeek V4 Pro)"
+    )
+
+
+def list_available_providers() -> list[dict]:
+    """List all providers and their availability status."""
+    result = []
+    for name, cls in [("claude", ClaudeProvider), ("gemini", GeminiProvider), ("deepseek", DeepSeekProvider)]:
+        provider = cls()
+        result.append({
+            "name": name,
+            "model": provider.model_id,
+            "available": provider.is_available(),
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# System prompt builder (shared across all providers)
+# ---------------------------------------------------------------------------
+
+_POV_STORY_SECTION = """
+POV / "A DAY IN THE LIFE" STORY MODE (preset = pov_story) — this OVERRIDES the generic editing rules above.
+This is a story-driven, POV vlog-style reel, NOT a beat-cut highlight montage. Build a mini narrative across
+three phases of a gig:
+  - "before": arriving, getting ready, soundcheck, backstage, nerves, walking to the booth (ARRIVAL / BACKSTAGE / DJ_SETUP)
+  - "during": the actual set — mixing, the drop, the crowd reacting (CROWD_ENERGY / LIGHT_SHOW / DJ_SETUP)
+  - "after": the comedown — last track, packing up, crowd leaving, the quiet after (PACKDOWN / BACKSTAGE / BREAKDOWN)
+
+POV STORY RULES:
+1. DO use ARRIVAL, PACKDOWN and BACKSTAGE clips here — they carry the "before" and "after" story. The generic "avoid BACKSTAGE" rule does NOT apply. ARRIVAL strongly signals "before"; PACKDOWN strongly signals "after".
+2. Order clips chronologically as a narrative: before -> during -> after. Set each clip's "phase" field accordingly.
+3. Cuts may be motivated by story beats, not only kicks/snares. Pacing: slower (before) -> peak (during) -> settle (after).
+4. Establishing clips in "before"/"after" may run a bit longer (up to ~6s); keep the "during" phase punchy.
+5. The FIRST clip is the HOOK (first ~3 seconds) and MUST stop the scroll.
+
+ANTI-ADVICE HOOK (REQUIRED — put it in the top-level "hook_text" field):
+Write ONE short, punchy on-screen text line for the first 3 seconds. It is "anti-advice": deliberately
+contrarian / counterintuitive / provocative — the OPPOSITE of a polite tip. Bait the viewer by challenging
+conventional DJ wisdom or undercutting expectations. Under ~60 characters, no hashtags, no emojis.
+Match this energy (do NOT copy verbatim):
+  - "stop practicing your transitions."
+  - "nobody cares about your warm-up set."
+  - "POV: ignored every DJ tip and still packed the floor"
+  - "the crowd doesn't want your 'journey'."
+Make the hook thematically connect to what actually happens in the chosen clips.
+"""
+
+
+def _build_system_prompt(preset: str, duration: float, target_bpm: float = 0) -> str:
+    """Build the system prompt for the regie AI task."""
+    pov_section = _POV_STORY_SECTION if preset == "pov_story" else ""
+
+    return f"""You are an expert video editor and creative director specializing in techno/electronic music content for Instagram Reels.
+
+Your task: Create a precise, millisecond-accurate edit plan for a DJ video reel.
+
+EDIT SPECIFICATIONS:
+- Target duration: {duration} seconds
+- Preset style: {preset}
+- Target BPM: {target_bpm or "auto-detect"}
+- Output format: 9:16 (1080x1920) for Instagram Reels
+- Color grading: 3D-LUT underground techno look
+
+EDITING RULES:
+1. Every cut MUST land on a beat, kick, snare, or drop timestamp
+2. Build dramatic tension: start calm → build up → peak at drops → cool down
+3. Prioritize CROWD_ENERGY and LIGHT_SHOW tags for peak moments
+4. Avoid UNUSABLE and BACKSTAGE segments
+5. Use hard cuts on kicks/snares for energy, crossfades for transitions
+6. Keep individual clips between 2-8 seconds (reels need fast pacing)
+7. If a clip has high motion (>0.8), consider slow-motion (setpts=PTS*2.0)
+8. The last clip should create a seamless loop feel if possible
+
+PRESET DEFINITIONS:
+- "highlight": Best moments, high energy, fast cuts, 60-90s
+- "drop_focus": Centered around drops, build-up → drop → aftermath
+- "seamless_loop": Short (15-30s), end flows back to start
+- "moody": Slower cuts, atmospheric, BREAKDOWN + LIGHT_SHOW heavy
+- "pov_story": POV / "A Day in the Life" — story-driven vlog reel (before → during → after a gig) with an anti-advice text hook in the first 3s
+{pov_section}
+You MUST respond with ONLY valid JSON in this exact format (no markdown fences, no commentary):
+{{
+  "clips": [
+    {{
+      "video": "filename.mov",
+      "start": 12.345,
+      "end": 18.789,
+      "transition": "hard_cut_on_beat",
+      "reason": "Drop starts here, crowd erupts",
+      "crop": "9:16",
+      "lut": "underground_dark",
+      "slow_mo": false,
+      "slow_mo_factor": 1.0,
+      "phase": ""
+    }}
+  ],
+  "narrative": "Description of the edit's story arc",
+  "hook_text": ""
+}}
+
+SCHEMA NOTES:
+- "phase": only for the pov_story preset ("before" | "during" | "after"); use "" for all other presets.
+- "hook_text": the anti-advice hook line; REQUIRED (non-empty) for pov_story, "" otherwise."""
+
+
+# ---------------------------------------------------------------------------
+# JSON Response Parser (shared across all providers)
+# ---------------------------------------------------------------------------
+
+def _parse_edit_plan(raw: str, provider_name: str = "", model_id: str = "") -> EditPlan:
+    """Parse AI JSON response into an EditPlan. Handles markdown fences and extra text."""
+    # Strip markdown fences
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        # Remove first line (```json or ```)
+        cleaned = "\n".join(lines[1:])
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    # Try to find JSON object in the response (some providers add text before/after)
+    json_start = cleaned.find("{")
+    json_end = cleaned.rfind("}") + 1
+    if json_start >= 0 and json_end > json_start:
+        cleaned = cleaned[json_start:json_end]
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse {provider_name} response as JSON: {e}")
+        logger.debug(f"Raw response: {raw[:500]}")
+        raise ValueError(f"Invalid JSON from {provider_name}: {e}")
+
+    clips = []
+    for c in parsed.get("clips", []):
+        clips.append(EditClip(
+            video=c["video"],
+            start=float(c["start"]),
+            end=float(c["end"]),
+            transition=c.get("transition", "cut"),
+            reason=c.get("reason", ""),
+            crop=c.get("crop", "9:16"),
+            lut=c.get("lut", "underground_dark"),
+            slow_mo=c.get("slow_mo", False),
+            slow_mo_factor=c.get("slow_mo_factor", 1.0),
+            phase=c.get("phase", ""),
+        ))
+
+    total = sum(c.duration for c in clips) if clips else 0
+
+    return EditPlan(
+        clips=clips,
+        narrative=parsed.get("narrative", ""),
+        hook_text=parsed.get("hook_text", ""),
+        total_duration=total,
+        style="highlight",
+        provider_used=provider_name,
+        model_used=model_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data trimming for context limits
+# ---------------------------------------------------------------------------
+
+def _trim_analysis_for_prompt(data: dict, max_beats: int = 200) -> dict:
+    """Trim large analysis data to fit within API context limits."""
+    trimmed = {}
+
+    for key, value in data.items():
+        if isinstance(value, list) and len(value) > max_beats:
+            half = max_beats // 2
+            quarter = max_beats // 4
+            trimmed[key] = value[:half] + ["..."] + value[-quarter:]
+        elif isinstance(value, dict):
+            trimmed[key] = value
+        else:
+            trimmed[key] = value
+
+    return trimmed
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def generate_edit_plan(
+    analysis_data: dict,
+    preset: str = "highlight",
+    duration: float = 60.0,
+    target_bpm: float = 0.0,
+    provider: str = "",
+    output_path: Path | None = None,
+    temperature: float = 0.4,
+    max_tokens: int = 8192,  # headroom for reasoning models (e.g. deepseek) whose
+                             # chain-of-thought counts against the token budget
+) -> EditPlan:
+    """
+    Generate an AI-directed edit plan.
+
+    Args:
+        analysis_data: Complete analysis dict containing:
+            - audio: {bpm, beats, drops, kicks, snares, buildups}
+            - video: {scenes, motion_scores, light_changes}
+            - vision_tags: [{time, tag, confidence, description}]
+            - highlights: [{start, end, score}]
+            - sync_offsets: {filename: offset_seconds}
+        preset: Edit style preset ("highlight", "drop_focus", "seamless_loop", "moody")
+        duration: Target reel duration in seconds
+        target_bpm: Override BPM (0 = auto-detect)
+        provider: AI provider to use ("claude", "gemini", "deepseek", "" = auto)
+        output_path: Optional path to save the plan JSON
+        temperature: Generation temperature (0.0-1.0)
+        max_tokens: Max tokens in response
+
+    Returns:
+        EditPlan with precise clip selections
+    """
+    # Resolve provider
+    ai = resolve_provider(provider)
+
+    logger.info(f"Generating edit plan: preset={preset}, duration={duration}s")
+    logger.info(f"  Provider: {ai.name} ({ai.model_id})")
+
+    # Build prompts
+    system_prompt = _build_system_prompt(preset, duration, target_bpm)
+
+    trimmed = _trim_analysis_for_prompt(analysis_data)
+    user_data = f"ANALYSIS DATA:\n```json\n{json.dumps(trimmed, indent=2, ensure_ascii=False, default=str)}\n```"
+
+    # Call AI provider
+    t0 = time.time()
+    raw_response = ai.call(
+        system_prompt=system_prompt,
+        user_data=user_data,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    elapsed = time.time() - t0
+
+    logger.info(f"  Response received in {elapsed:.1f}s")
+
+    # Parse response
+    plan = _parse_edit_plan(raw_response, provider_name=ai.name, model_id=ai.model_id)
+    plan.generation_time_s = elapsed
+    plan.style = preset  # reflect the requested preset (parser defaults to "highlight")
+
+    # Verify and fix
+    plan = verify_edit_plan(plan, analysis_data, target_duration=duration)
+
+    if output_path:
+        plan.save(output_path)
+
+    logger.info(f"Edit plan generated: {len(plan.clips)} clips, {plan.total_duration:.1f}s total "
+                f"[{ai.name}/{ai.model_id}, {elapsed:.1f}s]")
+    return plan
+
+
+def generate_multi_plan(
+    analysis_data: dict,
+    preset: str = "highlight",
+    duration: float = 60.0,
+    target_bpm: float = 0.0,
+    providers: list[str] | None = None,
+) -> dict[str, EditPlan]:
+    """
+    Generate edit plans from MULTIPLE providers for comparison/A/B testing.
+    Each provider with a configured API key generates its own plan.
+
+    Returns:
+        Dict of {provider_name: EditPlan}
+    """
+    if providers is None:
+        providers = REGIE_PROVIDER_FALLBACK_ORDER
+
+    results: dict[str, EditPlan] = {}
+
+    for provider_name in providers:
+        try:
+            provider = get_provider(provider_name)
+            if not provider.is_available():
+                logger.info(f"Skipping {provider_name}: API key not set")
+                continue
+
+            logger.info(f"\n{'=' * 40}")
+            logger.info(f"Generating plan with {provider_name}...")
+
+            plan = generate_edit_plan(
+                analysis_data,
+                preset=preset,
+                duration=duration,
+                target_bpm=target_bpm,
+                provider=provider_name,
+            )
+            results[provider_name] = plan
+
+        except Exception as e:
+            logger.error(f"  {provider_name} failed: {e}")
+            continue
+
+    if not results:
+        raise RuntimeError("All providers failed to generate edit plans")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Verification & Self-Healing
+# ---------------------------------------------------------------------------
+
+def verify_edit_plan(
+    plan: EditPlan,
+    analysis_data: dict,
+    target_duration: float = 60.0,
+) -> EditPlan:
+    """
+    Verify an edit plan and fix common issues:
+    - Clips with zero/negative duration
+    - Overly long clips (>15s)
+    - Duration mismatch warnings
+    """
+    if not plan.clips:
+        logger.warning("Empty edit plan - nothing to verify")
+        return plan
+
+    fixed_clips = []
+    for clip in plan.clips:
+        if clip.end <= clip.start:
+            logger.warning(f"Skipping zero/negative duration clip: {clip.video} [{clip.start}-{clip.end}]")
+            continue
+
+        clip_duration = clip.duration
+        if clip_duration > 15.0:
+            logger.warning(f"Trimming long clip ({clip_duration:.1f}s): {clip.video}")
+            clip.end = clip.start + 15.0
+
+        fixed_clips.append(clip)
+
+    plan.clips = fixed_clips
+    plan.total_duration = sum(c.duration for c in plan.clips)
+
+    duration_diff = abs(plan.total_duration - target_duration)
+    if duration_diff > 5.0:
+        logger.warning(
+            f"Duration mismatch: plan={plan.total_duration:.1f}s vs target={target_duration:.1f}s "
+            f"(diff={duration_diff:.1f}s)"
+        )
+
+    logger.info(
+        f"Verification: {len(plan.clips)} clips, "
+        f"total={plan.total_duration:.1f}s, "
+        f"target={target_duration:.1f}s"
+    )
+
+    return plan
+
+
+# ---------------------------------------------------------------------------
+# Seamless Loop Helper
+# ---------------------------------------------------------------------------
+
+def create_seamless_loop_plan(
+    video_path: str,
+    start: float,
+    end: float,
+    crossfade_duration: float = 0.5,
+) -> EditPlan:
+    """
+    Create a seamless loop edit plan by splitting a clip and swapping halves.
+    End-clip goes first, Start-clip goes last, with crossfade at the junction.
+    Exploits Instagram's loop behavior for higher view counts.
+    """
+    midpoint = (start + end) / 2
+
+    return EditPlan(
+        clips=[
+            EditClip(
+                video=video_path,
+                start=midpoint,
+                end=end,
+                transition="crossfade",
+                reason="Second half of original (plays first for seamless loop)",
+            ),
+            EditClip(
+                video=video_path,
+                start=start,
+                end=midpoint,
+                transition="crossfade",
+                reason="First half of original (plays second for seamless loop)",
+            ),
+        ],
+        narrative="Seamless loop: end flows back to start for infinite replay",
+        total_duration=end - start,
+        style="seamless_loop",
+        provider_used="algorithmic",
+        model_used="seamless_loop_v1",
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    parser = argparse.ArgumentParser(
+        description="UNREEL V3 – Regie Engine (Multi-Provider AI)",
+    )
+    parser.add_argument("analysis_json", help="Path to analysis JSON file")
+    parser.add_argument("--preset", "-p", default="highlight",
+                        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story"])
+    parser.add_argument("--duration", "-d", type=float, default=60.0)
+    parser.add_argument("--provider", choices=["claude", "gemini", "deepseek", "auto"],
+                        default="auto", help="AI provider (default: auto)")
+    parser.add_argument("--multi", action="store_true",
+                        help="Generate plans from ALL available providers for comparison")
+    parser.add_argument("--output", "-o", type=Path, default=Path("output/edit_plan.json"))
+    parser.add_argument("--verbose", "-v", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    with open(args.analysis_json) as f:
+        analysis = json.load(f)
+
+    # Show provider status
+    print("\n📡 Provider Status:")
+    for p in list_available_providers():
+        status = "✅ available" if p["available"] else "❌ no API key"
+        print(f"  {p['name']:10s}  {p['model']:25s}  {status}")
+    print()
+
+    if args.multi:
+        # Multi-provider comparison
+        results = generate_multi_plan(analysis, preset=args.preset, duration=args.duration)
+
+        print(f"\n{'=' * 60}")
+        print(f"MULTI-PROVIDER COMPARISON ({len(results)} plans)")
+        print(f"{'=' * 60}")
+
+        for name, plan in results.items():
+            print(f"\n  [{name.upper()}] {plan.model_used}")
+            print(f"  Clips: {len(plan.clips)}, Duration: {plan.total_duration:.1f}s, "
+                  f"Time: {plan.generation_time_s:.1f}s")
+            print(f"  Narrative: {plan.narrative}")
+            plan.save(args.output.parent / f"edit_plan_{name}.json")
+
+    else:
+        # Single provider
+        plan = generate_edit_plan(
+            analysis,
+            preset=args.preset,
+            duration=args.duration,
+            provider=args.provider,
+            output_path=args.output,
+        )
+
+        print(f"\nEdit Plan by {plan.provider_used} ({plan.model_used})")
+        print(f"  {len(plan.clips)} clips, {plan.total_duration:.1f}s, generated in {plan.generation_time_s:.1f}s")
+        print(f"  Narrative: {plan.narrative}\n")
+
+        for i, clip in enumerate(plan.clips):
+            print(f"  [{i + 1:02d}] {Path(clip.video).name:30s}  "
+                  f"{clip.start:7.3f}s → {clip.end:7.3f}s  "
+                  f"({clip.duration:.1f}s)  {clip.transition}")
+
+        print(f"\nSaved to {args.output}")
+
+```
+
+### `vision_engine.py`
+
+```python
+"""
+UNREEL V3 – Vision Engine (Gemma 4 E2B Scene Tagging)
+Uses a local multimodal model via Ollama to analyze video frames and assign
+semantic tags for DJ event footage.
+
+Usage:
+    from analyzer.vision_engine import tag_video_frames
+    tags = tag_video_frames("input/clip1.mov")
+    # → [{"time": 5.0, "tag": "CROWD_ENERGY", "confidence": 0.9, "description": "..."}]
+"""
+
+import json
+import logging
+import base64
+import tempfile
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+
+import cv2
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+OLLAMA_HOST = "http://localhost:11434"
+GEMMA_MODEL = "gemma4:e2b"
+SAMPLE_INTERVAL_SEC = 5  # Sample a frame every N seconds
+BATCH_SIZE = 4  # Send N frames per API call for efficiency
+CONFIDENCE_THRESHOLD = 0.3
+
+VALID_TAGS = [
+    "CROWD_ENERGY",
+    "DJ_SETUP",
+    "LIGHT_SHOW",
+    "TRANSITION",
+    "BREAKDOWN",
+    "BACKSTAGE",
+    "ARRIVAL",
+    "PACKDOWN",
+    "UNUSABLE",
+]
+
+TAG_BONUS_SCORES = {
+    "CROWD_ENERGY": 0.8,
+    "LIGHT_SHOW": 0.5,
+    "DJ_SETUP": 0.3,
+    "TRANSITION": 0.1,
+    "BREAKDOWN": 0.2,
+    "BACKSTAGE": 0.0,
+    "ARRIVAL": 0.0,    # Story-only (pov_story "before"); no highlight bonus
+    "PACKDOWN": 0.0,   # Story-only (pov_story "after"); no highlight bonus
+    "UNUSABLE": -1.0,
+}
+
+SYSTEM_PROMPT = """You are a professional video analyst specializing in electronic music events.
+Analyze the provided DJ event frames and classify each one.
+
+For EACH frame, provide:
+- "time": the timestamp in seconds (float)
+- "tag": exactly one of: CROWD_ENERGY, DJ_SETUP, LIGHT_SHOW, TRANSITION, BREAKDOWN, BACKSTAGE, ARRIVAL, PACKDOWN, UNUSABLE
+- "confidence": your confidence level from 0.0 to 1.0
+- "description": a brief German description (max 20 words)
+
+Guidelines:
+- CROWD_ENERGY: Audience dancing, hands up, crowd visible and active
+- DJ_SETUP: Focus on DJ equipment, decks, mixer, laptop
+- LIGHT_SHOW: Dominant light effects, lasers, strobes, visuals
+- TRANSITION: DJ switching tracks, calm between sections
+- BREAKDOWN: Musical breakdown, calmer moment, less movement
+- BACKSTAGE: Behind the scenes, non-performance areas (generic, not clearly arrival/packdown)
+- ARRIVAL: BEFORE the set — arriving at the venue, loading in gear, getting ready, soundcheck, empty room filling up, walking to the booth
+- PACKDOWN: AFTER the set — last track ending, packing up gear, crowd leaving, empty floor, lights on, the quiet afterwards
+- UNUSABLE: Blurry, too dark, pointless footage
+
+Respond ONLY with valid JSON. No markdown fences. Format:
+[{"time": 5.0, "tag": "CROWD_ENERGY", "confidence": 0.9, "description": "Crowd geht ab bei Drop"}]
+"""
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FrameTag:
+    time: float
+    tag: str
+    confidence: float
+    description: str
+
+    def to_dict(self) -> dict:
+        return {
+            "time": self.time,
+            "tag": self.tag,
+            "confidence": self.confidence,
+            "description": self.description,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Frame extraction
+# ---------------------------------------------------------------------------
+
+def extract_sample_frames(
+    video_path: str | Path,
+    interval_sec: float = SAMPLE_INTERVAL_SEC,
+) -> list[tuple[float, bytes]]:
+    """
+    Extract frames from a video at regular intervals.
+    Returns list of (timestamp_seconds, jpeg_bytes).
+    """
+    path = str(video_path)
+    cap = cv2.VideoCapture(path)
+
+    if not cap.isOpened():
+        raise IOError(f"Cannot open video: {path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / fps if fps > 0 else 0
+
+    interval_frames = int(fps * interval_sec)
+    samples: list[tuple[float, bytes]] = []
+
+    logger.info(f"Extracting frames from {Path(path).name} "
+                f"({duration:.1f}s, every {interval_sec}s ≈ {int(duration / interval_sec)} frames)")
+
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame_idx % interval_frames == 0:
+            timestamp = frame_idx / fps
+            # Encode as JPEG for smaller payload
+            _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            samples.append((timestamp, jpeg.tobytes()))
+
+        frame_idx += 1
+
+    cap.release()
+    logger.info(f"  Extracted {len(samples)} sample frames")
+    return samples
+
+
+# ---------------------------------------------------------------------------
+# Ollama API interaction
+# ---------------------------------------------------------------------------
+
+def _ollama_available() -> bool:
+    """Check if Ollama is running locally."""
+    try:
+        import urllib.request
+        req = urllib.request.Request(f"{OLLAMA_HOST}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _analyze_frames_batch(
+    frames: list[tuple[float, bytes]],
+    model: str = GEMMA_MODEL,
+) -> list[FrameTag]:
+    """
+    Send a batch of frames to the Ollama multimodal model for analysis.
+    Uses the ollama Python library (pip install ollama).
+    """
+    try:
+        import ollama
+    except ImportError:
+        logger.warning("ollama package not installed. Install with: pip install ollama")
+        return []
+
+    # Build the message in Ollama's format: a single string `content` plus a
+    # separate `images` list of base64-encoded frames (in order). The text tells
+    # the model which image index maps to which timestamp.
+    frame_index = "\n".join(
+        f"- Image {i + 1}: frame at t={timestamp:.1f}s"
+        for i, (timestamp, _) in enumerate(frames)
+    )
+    user_text = (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"Analyze these {len(frames)} frames. The images are provided in this order, "
+        f"use the matching timestamp as the 'time' value:\n"
+        f"{frame_index}"
+    )
+    images = [base64.b64encode(jpeg_bytes).decode("utf-8") for _, jpeg_bytes in frames]
+
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": user_text, "images": images}],
+            options={"temperature": 0.3},
+        )
+        raw = response["message"]["content"]
+    except Exception as e:
+        logger.warning(f"Ollama API error: {e}")
+        return []
+
+    # Parse JSON from response
+    try:
+        # Strip markdown fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        # The model may emit one JSON array per image (concatenated), a single
+        # array, or a bare object. Decode every top-level JSON value and flatten.
+        parsed = []
+        decoder = json.JSONDecoder()
+        idx, n = 0, len(cleaned)
+        while idx < n:
+            while idx < n and cleaned[idx] in " \t\r\n,":
+                idx += 1
+            if idx >= n:
+                break
+            try:
+                value, end = decoder.raw_decode(cleaned, idx)
+            except json.JSONDecodeError:
+                break
+            if isinstance(value, list):
+                parsed.extend(value)
+            elif isinstance(value, dict):
+                parsed.append(value)
+            idx = end
+
+        if not parsed:
+            logger.warning(f"No JSON parsed from vision response.\nRaw: {raw[:200]}")
+            return []
+
+        tags = []
+        for entry in parsed:
+            tag = entry.get("tag", "UNUSABLE")
+            if tag not in VALID_TAGS:
+                tag = "UNUSABLE"
+            tags.append(FrameTag(
+                time=float(entry.get("time", 0)),
+                tag=tag,
+                confidence=float(entry.get("confidence", 0.5)),
+                description=entry.get("description", ""),
+            ))
+        return tags
+
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.warning(f"Failed to parse vision response: {e}\nRaw: {raw[:200]}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def tag_video_frames(
+    video_path: str | Path,
+    sample_interval_sec: float = SAMPLE_INTERVAL_SEC,
+    model: str = GEMMA_MODEL,
+) -> list[FrameTag]:
+    """
+    Analyze a video file and return semantic tags for sampled frames.
+    
+    Falls back gracefully if Ollama is not running (returns empty list).
+    """
+    if not _ollama_available():
+        logger.warning("Ollama not available. Skipping vision tagging.")
+        return []
+
+    # Extract sample frames
+    frames = extract_sample_frames(video_path, interval_sec=sample_interval_sec)
+    if not frames:
+        return []
+
+    # Process in batches
+    all_tags: list[FrameTag] = []
+    for i in range(0, len(frames), BATCH_SIZE):
+        batch = frames[i : i + BATCH_SIZE]
+        logger.info(f"  Analyzing batch {i // BATCH_SIZE + 1}/{(len(frames) + BATCH_SIZE - 1) // BATCH_SIZE}...")
+        tags = _analyze_frames_batch(batch, model=model)
+        all_tags.extend(tags)
+
+    logger.info(f"  Got {len(all_tags)} tags from vision model")
+    return all_tags
+
+
+def filter_unusable(tags: list[FrameTag], min_confidence: float = CONFIDENCE_THRESHOLD) -> list[FrameTag]:
+    """Remove UNUSABLE tags and low-confidence entries."""
+    return [t for t in tags if t.tag != "UNUSABLE" and t.confidence >= min_confidence]
+
+
+def get_tag_scores(tags: list[FrameTag]) -> dict[str, float]:
+    """
+    Convert tags to a score dictionary for the highlight engine.
+    Returns {timestamp_range_key: bonus_score}.
+    """
+    scores = {}
+    for tag in tags:
+        key = f"{tag.time:.1f}"
+        scores[key] = scores.get(key, 0.0) + TAG_BONUS_SCORES.get(tag.tag, 0.0) * tag.confidence
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m analyzer.vision_engine <video_path>")
+        sys.exit(1)
+
+    video = sys.argv[1]
+    print(f"Analyzing {video}...")
+
+    tags = tag_video_frames(video)
+    for t in tags:
+        print(f"  t={t.time:6.1f}s  {t.tag:15s}  conf={t.confidence:.2f}  {t.description}")
+
+    print(f"\nFiltered (unusable removed):")
+    filtered = filter_unusable(tags)
+    for t in filtered:
+        print(f"  t={t.time:6.1f}s  {t.tag:15s}  conf={t.confidence:.2f}")
+
+```
+
+### `src/main.py`
+
+```python
+"""
+UNREEL V3 – Main CLI Entry Point (Orchestrator)
+Orchestrates the full DJ video pipeline: ingest → sync → analyze → regie → export.
+Supports multi-provider AI regie (Claude, Gemini, DeepSeek).
+
+Usage:
+    python -m src.main --input ./input --preset highlight --duration 60
+    python -m src.main --input ./input --preset seamless_loop --duration 30
+    python -m src.main --input ./input --provider gemini --phase regie
+    python -m src.main --input ./input --provider deepseek --multi
+    python -m src.main --input ./input --phase sync        # Run only Phase 1
+"""
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# Add project root to path for imports (V3 modules live at the repo root)
+# src/main.py is in src/, so root is parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config import (
+    INPUT_DIR, OUTPUT_DIR, LUT_DIR, DEFAULT_LUT,
+    SAMPLE_RATE, COPYWRITER_MODEL, GEMMA_MODEL,
+    REGIE_PROVIDER, REEL_FPS,
+)
+from lut_generator import generate_all_luts, get_lut_path
+from audio_sync import sync_all_clips
+from kick_snare_detector import detect_kicks_snares, get_beat_grid
+from vision_engine import tag_video_frames, filter_unusable
+from copywriter import generate_caption, generate_filename, batch_process, save_captions
+from regie_engine import (
+    generate_edit_plan,
+    generate_multi_plan,
+    create_seamless_loop_plan,
+    list_available_providers,
+)
+
+logger = logging.getLogger("unreel")
+
+
+# ---------------------------------------------------------------------------
+# Pipeline Phases
+# ---------------------------------------------------------------------------
+
+def phase_0_setup():
+    """Phase 0: Generate LUTs if they don't exist."""
+    logger.info("=" * 60)
+    logger.info("PHASE 0: Setup – Generating LUTs")
+    logger.info("=" * 60)
+
+    luts = generate_all_luts()
+    for name, path in luts.items():
+        logger.info(f"  ✓ {name}: {path}")
+    return luts
+
+
+def phase_1_sync(video_paths: list[Path]) -> dict:
+    """Phase 1: Audio Cross-Correlation Sync + Kick/Snare Detection."""
+    logger.info("=" * 60)
+    logger.info("PHASE 1: Audio Sync & Percussion Detection")
+    logger.info("=" * 60)
+
+    result = {}
+
+    # Audio sync (only if multiple clips)
+    if len(video_paths) >= 2:
+        sync_result = sync_all_clips(
+            [str(p) for p in video_paths],
+            sr=SAMPLE_RATE,
+            output_path=OUTPUT_DIR / "audio_sync.json",
+        )
+        result["sync"] = sync_result.to_dict()
+        ref_path = sync_result.reference_clip
+    else:
+        ref_path = str(video_paths[0])
+        result["sync"] = {"reference_clip": ref_path, "offsets": {ref_path: 0.0}}
+
+    # Kick/Snare detection on reference clip
+    logger.info("\nDetecting kicks & snares on reference clip...")
+    percussion = detect_kicks_snares(ref_path, sr=SAMPLE_RATE)
+    percussion.save(OUTPUT_DIR / "percussion_map.json")
+    result["percussion"] = percussion.to_dict()
+    result["beat_grid"] = get_beat_grid(percussion)
+
+    logger.info(f"\n  Reference: {Path(ref_path).name}")
+    logger.info(f"  BPM: {percussion.bpm:.1f}")
+    logger.info(f"  Kicks: {len(percussion.kicks)}")
+    logger.info(f"  Snares: {len(percussion.snares)}")
+
+    return result
+
+
+def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_cb=None) -> dict:
+    """Phase 2: Video Analysis + Vision Tagging.
+
+    Resumable: clips already present in `existing` are skipped, and `save_cb(result)`
+    is invoked after each clip so an interruption (sleep/kill) never loses progress.
+    """
+    logger.info("=" * 60)
+    logger.info("PHASE 2: Video Analysis & Vision Tagging")
+    logger.info("=" * 60)
+
+    result = dict(existing) if existing else {}
+    total = len(video_paths)
+
+    for i, vp in enumerate(video_paths, 1):
+        if str(vp) in result and "vision_tags" in result[str(vp)]:
+            logger.info(f"\n[{i}/{total}] Skipping {vp.name} (already tagged)")
+            continue
+
+        logger.info(f"\n[{i}/{total}] Analyzing {vp.name}...")
+
+        # Vision tagging via Gemma 4
+        logger.info("  Running vision tagging (Gemma 4 E2B)...")
+        tags = tag_video_frames(str(vp))
+        filtered = filter_unusable(tags)
+
+        result[str(vp)] = {
+            "vision_tags": [t.to_dict() for t in tags],
+            "vision_tags_filtered": [t.to_dict() for t in filtered],
+            "tag_count": len(tags),
+            "usable_count": len(filtered),
+        }
+
+        logger.info(f"  Tags: {len(tags)} total, {len(filtered)} usable")
+        for t in filtered[:5]:
+            logger.info(f"    t={t.time:.1f}s  {t.tag}  ({t.confidence:.2f})")
+
+        # Persist after every clip so progress survives interruptions
+        if save_cb is not None:
+            save_cb(result)
+
+    return result
+
+
+def phase_3_regie(
+    analysis_data: dict,
+    preset: str,
+    duration: float,
+    provider: str = "",
+    multi: bool = False,
+) -> dict:
+    """
+    Phase 3: AI Regie – Multi-provider edit plan generation.
+    Supports Claude Fable 5, Gemini 3.1 Pro, and DeepSeek V4 Pro.
+    """
+    logger.info("=" * 60)
+    logger.info("PHASE 3: AI Regie – Generating Edit Plan")
+    logger.info("=" * 60)
+
+    # Show provider status
+    providers = list_available_providers()
+    available = [p for p in providers if p["available"]]
+    logger.info(f"  Available providers: {', '.join(p['name'] for p in available) or 'none'}")
+
+    if not available:
+        logger.warning("No AI provider available – skipping Regie phase")
+        logger.warning(
+            "Set at least one API key in .env:\n"
+            "  ANTHROPIC_API_KEY=...  (Claude Fable 5)\n"
+            "  GEMINI_API_KEY=...     (Gemini 3.1 Pro)\n"
+            "  DEEPSEEK_API_KEY=...   (DeepSeek V4 Pro)"
+        )
+        return {"edit_plan": None, "skipped": True, "reason": "no_api_key"}
+
+    # Seamless loop (algorithmic, no AI needed)
+    if preset == "seamless_loop":
+        videos = list(analysis_data.get("sync", {}).get("offsets", {}).keys())
+        if videos:
+            plan = create_seamless_loop_plan(videos[0], 5.0, 5.0 + duration)
+            plan.save(OUTPUT_DIR / "edit_plan.json")
+            result = plan.to_dict()
+            logger.info(f"\n  Seamless Loop Plan: {len(plan.clips)} clips, {plan.total_duration:.1f}s")
+            return {"edit_plan": result}
+        else:
+            logger.error("No videos available for seamless loop")
+            return {"edit_plan": None}
+
+    # Multi-provider mode: generate from all available providers
+    if multi:
+        logger.info("  Mode: MULTI-PROVIDER (generating plans from all available AIs)")
+        try:
+            plans = generate_multi_plan(
+                analysis_data,
+                preset=preset,
+                duration=duration,
+            )
+        except RuntimeError as e:
+            logger.error(f"Multi-provider generation failed: {e}")
+            return {"edit_plan": None, "skipped": True, "reason": str(e)}
+
+        # Save all plans
+        all_plans = {}
+        for name, plan in plans.items():
+            plan.save(OUTPUT_DIR / f"edit_plan_{name}.json")
+            all_plans[name] = plan.to_dict()
+            logger.info(f"\n  [{name.upper()}] {plan.model_used}")
+            logger.info(f"    {len(plan.clips)} clips, {plan.total_duration:.1f}s, "
+                        f"generated in {plan.generation_time_s:.1f}s")
+            logger.info(f"    Narrative: {plan.narrative}")
+
+        # Use the first provider's plan as the default
+        primary = list(plans.values())[0]
+        primary.save(OUTPUT_DIR / "edit_plan.json")
+
+        return {"edit_plan": primary.to_dict(), "all_plans": all_plans}
+
+    # Single provider mode
+    try:
+        plan = generate_edit_plan(
+            analysis_data,
+            preset=preset,
+            duration=duration,
+            provider=provider,
+            output_path=OUTPUT_DIR / "edit_plan.json",
+        )
+    except ValueError as e:
+        logger.error(f"Provider error: {e}")
+        return {"edit_plan": None, "skipped": True, "reason": str(e)}
+
+    result = plan.to_dict()
+
+    logger.info(f"\n  Edit Plan by {plan.provider_used} ({plan.model_used})")
+    logger.info(f"  {len(plan.clips)} clips, {plan.total_duration:.1f}s, "
+                f"generated in {plan.generation_time_s:.1f}s")
+    logger.info(f"  Narrative: {plan.narrative}")
+    if plan.hook_text:
+        logger.info(f'  Anti-advice hook (first ~3s): "{plan.hook_text}"')
+
+    for i, clip in enumerate(plan.clips):
+        phase = f"  [{clip.phase}]" if clip.phase else ""
+        logger.info(f"    [{i + 1:02d}] {Path(clip.video).name}  "
+                     f"{clip.start:.3f}s → {clip.end:.3f}s  ({clip.duration:.1f}s)  {clip.transition}{phase}")
+
+    return {"edit_plan": result}
+
+
+def phase_4_copywriting(clips_metadata: list[dict], style: str = "techno") -> dict:
+    """Phase 4: Llama 3.2 Copywriting – filenames and captions."""
+    logger.info("=" * 60)
+    logger.info("PHASE 4: Copywriting – Filenames & Captions")
+    logger.info("=" * 60)
+
+    results = batch_process(clips_metadata, style=style, model=COPYWRITER_MODEL)
+    save_captions(results, OUTPUT_DIR / "captions.json")
+
+    for r in results:
+        logger.info(f"  {r.filename}.mp4")
+        logger.info(f"    → {r.caption[:80]}...")
+
+    return {
+        "captions": [r.to_dict() for r in results],
+        "count": len(results),
+    }
+
+
+def phase_5_assembly(edit_plan: dict | None) -> None:
+    """Phase 5: FFmpeg Assembly – Export with 3D-LUT and effects."""
+    logger.info("=" * 60)
+    logger.info("PHASE 5: FFmpeg Assembly & Color Grading")
+    logger.info("=" * 60)
+
+    # Fallback: Edit-Plan aus Datei laden, falls nicht übergeben
+    if edit_plan is None:
+        edit_plan_path = OUTPUT_DIR / "edit_plan.json"
+        if edit_plan_path.exists():
+            try:
+                with open(edit_plan_path, encoding="utf-8") as f:
+                    edit_plan = json.load(f)
+                logger.info(f"Loaded edit plan from {edit_plan_path}")
+            except Exception as e:
+                logger.error(f"Could not load edit plan: {e}")
+                return
+        else:
+            logger.warning("No edit plan available – skipping assembly")
+            logger.info("Tip: Set an AI provider API key to generate edit plans")
+            return
+
+    clips = edit_plan.get("clips", [])
+    if not clips:
+        logger.warning("Empty edit plan – nothing to assemble")
+        return
+
+    logger.info(f"Assembling {len(clips)} clips...")
+
+    exported_snippets: list[Path] = []  # in plan order, for final concat
+
+    for i, clip in enumerate(clips):
+        video = clip.get("video", "")
+        start = clip.get("start", 0)
+        end = clip.get("end", 0)
+        lut = clip.get("lut", DEFAULT_LUT)
+        slow_mo = clip.get("slow_mo", False)
+        slow_mo_factor = clip.get("slow_mo_factor", 1.0)
+        crop = clip.get("crop", "9:16")
+
+        if not Path(video).exists():
+            logger.warning(f"  Source not found: {video}")
+            continue
+
+        # Build FFmpeg filter chain
+        vf_parts = []
+
+        # Slow motion (applied first in chain)
+        if slow_mo and slow_mo_factor > 1.0:
+            vf_parts.append(f"setpts=PTS*{slow_mo_factor}")
+
+        # Crop for 9:16
+        if crop == "9:16":
+            vf_parts.append("crop=ih*9/16:ih")
+            vf_parts.append("scale=1080:1920")
+
+        # 3D-LUT color grading – relativer Pfad mit Forward-Slashes für FFmpeg
+        lut_path = LUT_DIR / f"{lut}.cube"
+        if lut_path.exists():
+            rel_path = os.path.relpath(lut_path).replace("\\", "/")
+            vf_parts.append(f"lut3d={rel_path}")
+        else:
+            logger.warning(f"  LUT not found: {lut_path}, using default")
+            default_path = LUT_DIR / f"{DEFAULT_LUT}.cube"
+            if default_path.exists():
+                rel_path = os.path.relpath(default_path).replace("\\", "/")
+                vf_parts.append(f"lut3d={rel_path}")
+
+        vf = ",".join(vf_parts)
+
+        output_name = f"snippet_{i + 1:03d}_{Path(video).stem}.mp4"
+        output_path = OUTPUT_DIR / output_name
+
+        # Build FFmpeg command
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start:.3f}",
+            "-to", f"{end:.3f}",
+            "-i", str(video),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
+        logger.info(f"  [{i + 1:02d}] {Path(video).name} → {output_name}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0:
+                size_kb = output_path.stat().st_size / 1024
+                logger.info(f"       ✓ Exported ({size_kb:.0f} KB)")
+                exported_snippets.append(output_path)
+            else:
+                logger.error(f"       ✗ FFmpeg error: {result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"       ✗ Timeout exporting clip")
+        except Exception as e:
+            logger.error(f"       ✗ Error: {e}")
+
+    # Final step: stitch the snippets into ONE reel, in plan order
+    if len(exported_snippets) >= 2:
+        _concat_snippets(exported_snippets, style=edit_plan.get("style", "reel"))
+    elif len(exported_snippets) == 1:
+        logger.info("Only one snippet exported – skipping concat (snippet IS the reel)")
+    else:
+        logger.warning("No snippets exported – nothing to concatenate")
+
+
+def _concat_snippets(snippets: list[Path], style: str = "reel") -> Path | None:
+    """
+    Concatenate exported snippets into the final reel (output/reel_<style>.mp4).
+
+    Re-encodes at a uniform frame rate: source clips recorded in slow-mo (e.g.
+    120 fps phone footage) produce snippets with mixed fps, which breaks
+    stream-copy concat timing.
+    """
+    output_path = OUTPUT_DIR / f"reel_{style}.mp4"
+    list_path = OUTPUT_DIR / "concat_list.txt"
+
+    # concat demuxer list; single quotes in paths escaped per FFmpeg syntax
+    lines = [f"file '{str(p.resolve()).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'"
+             for p in snippets]
+    list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    logger.info(f"Concatenating {len(snippets)} snippets → {output_path.name}")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", str(list_path),
+        "-vf", f"fps={REEL_FPS}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode == 0:
+            size_mb = output_path.stat().st_size / (1024 * 1024)
+            logger.info(f"  ✓ Final reel: {output_path} ({size_mb:.1f} MB)")
+            return output_path
+        logger.error(f"  ✗ Concat failed: {result.stderr[-300:]}")
+    except subprocess.TimeoutExpired:
+        logger.error("  ✗ Timeout concatenating reel")
+    except Exception as e:
+        logger.error(f"  ✗ Error: {e}")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Main Pipeline
+# ---------------------------------------------------------------------------
+
+def run_pipeline(
+    input_dir: Path = INPUT_DIR,
+    preset: str = "highlight",
+    duration: float = 60.0,
+    phases: list[str] | None = None,
+    style: str = "techno",
+    provider: str = "",
+    multi: bool = False,
+):
+    """Run the complete UNREEL V3 pipeline."""
+    # Ensure directories exist
+    input_dir.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Collect video files
+    video_extensions = {".mov", ".mp4", ".avi", ".mkv", ".webm", ".m4v"}
+    video_paths = sorted([
+        p for p in input_dir.iterdir()
+        if p.suffix.lower() in video_extensions
+    ])
+
+    if not video_paths:
+        logger.error(f"No video files found in {input_dir}")
+        logger.info("Place your DJ footage in the 'input/' directory and re-run.")
+        return
+
+    logger.info(f"UNREEL V3 – Found {len(video_paths)} video(s)")
+    for vp in video_paths:
+        logger.info(f"  {vp.name}")
+
+    # Show provider status at start
+    providers = list_available_providers()
+    logger.info("\n📡 AI Providers:")
+    for p in providers:
+        status = "✅" if p["available"] else "❌"
+        logger.info(f"  {status} {p['name']:10s}  {p['model']}")
+
+    all_results = {}
+    results_path = OUTPUT_DIR / "pipeline_results.json"
+
+    def _save_progress():
+        """Persist results after each phase so a later crash never loses work."""
+        serializable = json.loads(json.dumps(all_results, default=str))
+        with open(results_path, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, indent=2, ensure_ascii=False)
+
+    # Resume: when running only a SUBSET of phases, seed from the last saved run
+    # so downstream phases (e.g. regie) can reuse prior analysis without recomputing.
+    if phases is not None and results_path.exists():
+        try:
+            with open(results_path, encoding="utf-8") as f:
+                all_results = json.load(f)
+            logger.info(f"Resumed prior results from {results_path}")
+        except Exception as e:
+            logger.warning(f"Could not load prior results ({e}); starting fresh")
+
+    # Phase 0: Setup (always run)
+    if phases is None or "setup" in phases:
+        all_results["luts"] = phase_0_setup()
+
+    # Phase 1: Audio Sync + Kick/Snare
+    if phases is None or "sync" in phases or "analyze" in phases:
+        all_results["phase_1"] = phase_1_sync(video_paths)
+        _save_progress()
+
+    # Phase 2: Video Analysis + Vision (resumable, saves after each clip)
+    if phases is None or "vision" in phases or "analyze" in phases:
+        prior_p2 = all_results.get("phase_2") if isinstance(all_results.get("phase_2"), dict) else None
+
+        def _save_phase2(partial):
+            all_results["phase_2"] = partial
+            _save_progress()
+
+        all_results["phase_2"] = phase_2_analyze(video_paths, existing=prior_p2, save_cb=_save_phase2)
+        _save_progress()
+
+    # Phase 3: AI Regie (multi-provider)
+    if phases is None or "regie" in phases:
+        all_results["phase_3"] = phase_3_regie(
+            all_results, preset, duration,
+            provider=provider,
+            multi=multi,
+        )
+        _save_progress()
+
+    # Phase 4: Copywriting
+    if phases is None or "copy" in phases:
+        clips_meta = []
+        for vp in video_paths:
+            clips_meta.append({
+                "bpm": all_results.get("phase_1", {}).get("percussion", {}).get("bpm", 140),
+                "tags": ["techno"],
+                "duration": 30,
+            })
+        all_results["phase_4"] = phase_4_copywriting(clips_meta, style=style)
+        _save_progress()
+
+    # Phase 5: Assembly
+    if phases is None or "export" in phases:
+        edit_plan = all_results.get("phase_3", {}).get("edit_plan")
+        phase_5_assembly(edit_plan)
+
+    # Final save
+    _save_progress()
+
+    logger.info("=" * 60)
+    logger.info("PIPELINE COMPLETE")
+    logger.info(f"Results: {results_path}")
+    logger.info(f"Output:  {OUTPUT_DIR}/")
+    logger.info("=" * 60)
+
+
+# ---------------------------------------------------------------------------
+# CLI Argument Parser
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="UNREEL V3 – Automated DJ Video Pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m src.main --input ./input --preset highlight --duration 60
+  python -m src.main --input ./input --preset seamless_loop --duration 30
+  python -m src.main --input ./input --provider gemini --phase regie
+  python -m src.main --input ./input --provider deepseek --multi
+  python -m src.main --input ./input --phase sync
+  python -m src.main --luts
+""",
+    )
+
+    parser.add_argument(
+        "--input", "-i",
+        type=Path,
+        default=INPUT_DIR,
+        help="Input directory with video files (default: ./input)",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="Output directory (default: ./output)",
+    )
+    parser.add_argument(
+        "--preset", "-p",
+        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story"],
+        default="highlight",
+        help="Edit preset style (default: highlight)",
+    )
+    parser.add_argument(
+        "--duration", "-d",
+        type=float,
+        default=60.0,
+        help="Target reel duration in seconds (default: 60)",
+    )
+    parser.add_argument(
+        "--style", "-s",
+        choices=["techno", "house", "minimal"],
+        default="techno",
+        help="Music style for captions (default: techno)",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=["claude", "gemini", "deepseek", "auto"],
+        default="",
+        help="AI provider for regie phase (default: auto-detect from .env)",
+    )
+    parser.add_argument(
+        "--multi",
+        action="store_true",
+        help="Generate edit plans from ALL available AI providers for comparison",
+    )
+    parser.add_argument(
+        "--phase",
+        nargs="*",
+        choices=["setup", "sync", "vision", "regie", "copy", "export", "analyze"],
+        help="Run specific phases only (analyze = sync+vision)",
+    )
+    parser.add_argument(
+        "--luts",
+        action="store_true",
+        help="Generate LUT files only and exit",
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose output",
+    )
+
+    args = parser.parse_args()
+
+    # Logging setup
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # Generate LUTs only
+    if args.luts:
+        phase_0_setup()
+        return
+
+    # Run pipeline with CLI-provided paths
+    run_pipeline(
+        input_dir=args.input,
+        preset=args.preset,
+        duration=args.duration,
+        phases=args.phase,
+        style=args.style,
+        provider=args.provider,
+        multi=args.multi,
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+```
+
+### `analyzer/__init__.py`
+
+```python
+# analyzer package
+
+```
+
+### `analyzer/audio_analyzer.py`
+
+```python
+"""
+Audio Analyzer für DJ-Performance Videos.
+Erkennt Beat Drops, Buildups, Energie-Spitzen und Transitions.
+"""
+
+import numpy as np
+import librosa
+import subprocess
+import os
+import tempfile
+import config
+
+
+def extract_audio(video_path, output_path=None):
+    """Extrahiert Audio aus einem Video als WAV-Datei."""
+    if output_path is None:
+        output_path = os.path.join(
+            config.TEMP_DIR,
+            os.path.splitext(os.path.basename(video_path))[0] + ".wav"
+        )
+
+    if os.path.exists(output_path):
+        return output_path
+
+    cmd = [
+        "ffmpeg", "-i", video_path,
+        "-vn",  # kein Video
+        "-acodec", "pcm_s16le",
+        "-ar", str(config.AUDIO_SAMPLE_RATE),
+        "-ac", "1",  # Mono
+        "-y",  # Überschreiben
+        output_path
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise RuntimeError(f"FFmpeg Timeout bei Audio-Extraktion (>120s): {video_path}")
+    except subprocess.CalledProcessError as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise RuntimeError(
+            f"FFmpeg Fehler bei Audio-Extraktion: "
+            f"{e.stderr.decode(errors='replace')[:300]}"
+        )
+    return output_path
+
+
+def analyze_audio(video_path, progress_callback=None):
+    """
+    Führt vollständige Audio-Analyse durch.
+    
+    Returns:
+        dict mit:
+        - tempo: BPM
+        - beat_times: Array von Beat-Zeitpunkten in Sekunden
+        - energy_envelope: Onset-Strength über Zeit
+        - energy_times: Zeitstempel für energy_envelope
+        - energy_peaks: Zeitpunkte von Energie-Spitzen
+        - bass_drops: Liste von {time, intensity} Bass-Drop-Events
+        - buildups: Liste von {start, end, intensity} Buildup-Bereiche
+        - breakdowns: Liste von {start, end} Breakdown-Bereiche
+        - duration: Gesamtdauer in Sekunden
+    """
+    if progress_callback:
+        progress_callback("audio", 0, "Audio wird extrahiert...")
+
+    # Audio extrahieren
+    audio_path = extract_audio(video_path)
+
+    if progress_callback:
+        progress_callback("audio", 15, "Audio wird geladen...")
+
+    # Audio laden
+    y, sr = librosa.load(audio_path, sr=config.AUDIO_SAMPLE_RATE)
+    duration = librosa.get_duration(y=y, sr=sr)
+
+    if progress_callback:
+        progress_callback("audio", 25, "Beats werden erkannt...")
+
+    # --- Beat Detection ---
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=config.HOP_LENGTH)
+    # tempo kann ein Array sein in neueren librosa-Versionen
+    if hasattr(tempo, '__len__'):
+        tempo = float(tempo[0]) if len(tempo) > 0 else 120.0
+    else:
+        tempo = float(tempo)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr, hop_length=config.HOP_LENGTH)
+
+    if progress_callback:
+        progress_callback("audio", 40, "Energie wird analysiert...")
+
+    # --- Energy/Onset Strength ---
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=config.HOP_LENGTH)
+    energy_times = librosa.times_like(onset_env, sr=sr, hop_length=config.HOP_LENGTH)
+
+    # Normalisieren
+    if onset_env.max() > 0:
+        onset_env_norm = onset_env / onset_env.max()
+    else:
+        onset_env_norm = onset_env
+
+    # Energie-Peaks finden
+    threshold = np.percentile(onset_env_norm, config.ENERGY_THRESHOLD_PERCENTILE)
+    peak_indices = _find_peaks(onset_env_norm, threshold, min_distance_frames=int(sr / config.HOP_LENGTH * 0.5))
+    energy_peaks = energy_times[peak_indices] if len(peak_indices) > 0 else np.array([])
+
+    if progress_callback:
+        progress_callback("audio", 55, "Bass Drops werden erkannt...")
+
+    # --- Bass Drop Detection ---
+    bass_drops = _detect_bass_drops(y, sr, energy_times)
+
+    if progress_callback:
+        progress_callback("audio", 70, "Buildups werden erkannt...")
+
+    # --- Buildup / Breakdown Detection ---
+    buildups, breakdowns = _detect_buildups_breakdowns(onset_env_norm, energy_times)
+
+    if progress_callback:
+        progress_callback("audio", 90, "Audio-Analyse abgeschlossen")
+
+    results = {
+        "tempo": tempo,
+        "beat_times": beat_times.tolist(),
+        "energy_envelope": onset_env_norm.tolist(),
+        "energy_times": energy_times.tolist(),
+        "energy_peaks": energy_peaks.tolist(),
+        "bass_drops": bass_drops,
+        "buildups": buildups,
+        "breakdowns": breakdowns,
+        "duration": duration,
+    }
+
+    if progress_callback:
+        progress_callback("audio", 100, "Audio-Analyse fertig")
+
+    # WAV-Datei nach erfolgreicher Analyse löschen (kein Nutzen als Cache,
+    # da Ergebnisse in _analysis.json persistiert werden)
+    try:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+    except OSError:
+        pass  # Nicht-kritisch – nächster Lauf extrahiert neu
+
+    return results
+
+
+def _find_peaks(signal, threshold, min_distance_frames=10):
+    """Findet Peaks in einem Signal über einem Schwellenwert."""
+    peaks = []
+    i = 1
+    while i < len(signal) - 1:
+        if signal[i] > threshold and signal[i] > signal[i - 1] and signal[i] >= signal[i + 1]:
+            peaks.append(i)
+            i += min_distance_frames  # Mindestabstand
+        else:
+            i += 1
+    return np.array(peaks)
+
+
+def _detect_bass_drops(y, sr, energy_times):
+    """Erkennt Bass Drops durch Analyse der tiefen Frequenzen."""
+    bass_drops = []
+
+    # Mel-Spektrogramm berechnen
+    S = librosa.feature.melspectrogram(
+        y=y, sr=sr,
+        hop_length=config.HOP_LENGTH,
+        n_mels=128,
+        fmax=sr // 2
+    )
+
+    # Nur Bass-Frequenzen (untere Mel-Bänder, ca. < 200Hz)
+    mel_freqs = librosa.mel_frequencies(n_mels=128, fmax=sr // 2)
+    bass_mask = mel_freqs < config.BASS_FREQ_MAX
+    bass_energy = np.sum(S[bass_mask], axis=0)
+
+    # Normalisieren
+    if bass_energy.max() > 0:
+        bass_norm = bass_energy / bass_energy.max()
+    else:
+        return bass_drops
+
+    # Zeitachse
+    times = librosa.times_like(bass_norm, sr=sr, hop_length=config.HOP_LENGTH)
+
+    # Bass Drops finden: plötzlicher Anstieg der Bass-Energie
+    window_frames = int(config.BUILDUP_WINDOW_SEC * sr / config.HOP_LENGTH)
+
+    for i in range(window_frames, len(bass_norm) - 1):
+        # Vergleiche aktuelle Bass-Energie mit dem Durchschnitt der letzten Sekunden
+        preceding_mean = np.mean(bass_norm[max(0, i - window_frames):i])
+        if preceding_mean > 0:
+            ratio = bass_norm[i] / preceding_mean
+            if ratio >= config.MIN_DROP_ENERGY_RATIO and bass_norm[i] > 0.5:
+                # Prüfe ob nicht zu nah am letzten Drop
+                if len(bass_drops) == 0 or (times[i] - bass_drops[-1]["time"]) > 4.0:
+                    bass_drops.append({
+                        "time": float(times[i]),
+                        "intensity": float(min(ratio / 4.0, 1.0))  # Normalisiert 0-1
+                    })
+
+    return bass_drops
+
+
+def _detect_buildups_breakdowns(onset_env_norm, energy_times):
+    """
+    Erkennt Buildups (steigende Energie) und Breakdowns (fallende Energie).
+    """
+    buildups = []
+    breakdowns = []
+
+    # Glätten der Energie-Kurve
+    window_size = 50  # Frames
+    if len(onset_env_norm) < window_size * 2:
+        return buildups, breakdowns
+
+    smoothed = np.convolve(onset_env_norm, np.ones(window_size) / window_size, mode='same')
+
+    # Gradient berechnen
+    gradient = np.gradient(smoothed)
+
+    # Positive Gradienten-Regionen = Buildups
+    buildup_threshold = np.percentile(gradient[gradient > 0], 70) if np.any(gradient > 0) else 0.001
+    breakdown_threshold = np.percentile(gradient[gradient < 0], 30) if np.any(gradient < 0) else -0.001
+
+    # Zusammenhängende Regionen finden
+    in_buildup = False
+    buildup_start = 0
+
+    for i in range(len(gradient)):
+        if gradient[i] > buildup_threshold and not in_buildup:
+            in_buildup = True
+            buildup_start = i
+        elif gradient[i] <= buildup_threshold * 0.5 and in_buildup:
+            in_buildup = False
+            start_time = float(energy_times[buildup_start])
+            end_time = float(energy_times[min(i, len(energy_times) - 1)])
+            duration = end_time - start_time
+            if duration >= 2.0:  # Mindestens 2 Sekunden
+                intensity = float(np.mean(gradient[buildup_start:i]) / max(buildup_threshold, 0.001))
+                buildups.append({
+                    "start": start_time,
+                    "end": end_time,
+                    "intensity": min(intensity, 1.0)
+                })
+
+    # Breakdowns: plötzlicher Energieabfall
+    in_breakdown = False
+    breakdown_start = 0
+
+    for i in range(len(gradient)):
+        if gradient[i] < breakdown_threshold and not in_breakdown:
+            in_breakdown = True
+            breakdown_start = i
+        elif gradient[i] >= breakdown_threshold * 0.5 and in_breakdown:
+            in_breakdown = False
+            start_time = float(energy_times[breakdown_start])
+            end_time = float(energy_times[min(i, len(energy_times) - 1)])
+            duration = end_time - start_time
+            if duration >= 1.0:
+                breakdowns.append({
+                    "start": start_time,
+                    "end": end_time,
+                })
+
+    return buildups, breakdowns
+
+```
+
+### `analyzer/clip_exporter.py`
+
+```python
+"""
+Clip Exporter – FFmpeg-basierter Export von Video-Clips.
+Unterstützt Reel-Format (9:16) und Raw Clips (Original-Format).
+"""
+
+import subprocess
+import threading
+import os
+import json
+import config
+
+# Moderater "Dark Techno" Look Filter für einen einheitlichen Vibe
+# - eq: Kontrast stark erhöht (1.15), kaltes Blau-Tinting (gamma_b=1.05), entsättigt (0.8)
+# - vignette: dunkle Ränder für den Club-Vibe
+CINEMATIC_LOOK_FILTER = "eq=contrast=1.15:brightness=-0.05:saturation=0.8:gamma=0.9:gamma_g=0.95:gamma_r=0.95:gamma_b=1.05,vignette=PI/4"
+
+# ── Cancellable FFmpeg Registry ──────────────────────────────────────────────
+# Mappt thread_id → laufender Popen-Prozess.
+# app.py liest dieses Dict um den Prozess von außen abzubrechen.
+_active_procs: dict[int, subprocess.Popen] = {}
+_active_procs_lock = threading.Lock()
+
+
+def _run_ffmpeg(cmd: list, timeout: int = 300) -> tuple[int, str]:
+    """
+    Ersetzt subprocess.run() für alle FFmpeg-Aufrufe.
+    Registriert den Prozess im _active_procs-Dict damit er von außen
+    via cancel_export() abgebrochen werden kann.
+    Gibt (returncode, stderr) zurück.
+    """
+    tid = threading.get_ident()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with _active_procs_lock:
+        _active_procs[tid] = proc
+    try:
+        _, raw_err = proc.communicate(timeout=timeout)
+        return proc.returncode, raw_err.decode(errors="replace")
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise RuntimeError(f"FFmpeg Timeout (>{timeout}s)")
+    finally:
+        with _active_procs_lock:
+            _active_procs.pop(tid, None)
+
+
+# ── Tempo-Stretch (BPM-Matching) ─────────────────────────────────────────────
+def _speed_params(duration, speed):
+    """
+    Gibt (use_speed, out_duration) zurück.
+    use_speed ist False bei speed≈1.0 → kein setpts/atempo nötig.
+    out_duration ist die Länge des Clips NACH dem Stretch (= duration / speed),
+    wird sowohl für das Output-`-t`-Limit als auch für Fade-Zeiten gebraucht.
+    """
+    use = bool(speed) and speed > 0 and abs(speed - 1.0) > 1e-3
+    out_dur = (duration / speed) if use else duration
+    return use, out_dur
+
+
+def _atempo_chain(speed):
+    """
+    Zerlegt einen Tempo-Faktor in eine Kette von atempo-Filtern.
+    atempo akzeptiert pro Instanz nur 0.5–2.0; größere Faktoren werden
+    durch Verkettung erreicht (z.B. 2.5 → atempo=2.0,atempo=1.25).
+    """
+    factors = []
+    s = float(speed)
+    while s > 2.0:
+        factors.append(2.0)
+        s /= 2.0
+    while s < 0.5:
+        factors.append(0.5)
+        s *= 2.0
+    factors.append(round(s, 6))
+    return [f"atempo={f}" for f in factors]
+
+
+def export_clip(video_path, start_sec, end_sec, output_name,
+                mode="reel", fade=True, progress_callback=None, output_dir=None,
+                speed=1.0, crop_x=0.5):
+    """
+    Exportiert einen einzelnen Clip.
+    
+    Args:
+        video_path: Pfad zum Quell-Video
+        start_sec: Start-Zeitpunkt in Sekunden
+        end_sec: End-Zeitpunkt in Sekunden
+        output_name: Name der Ausgabedatei (ohne Extension)
+        mode: "reel" (9:16) oder "raw" (Original)
+        fade: Fade-In/Fade-Out hinzufügen
+        progress_callback: Optional, Fortschritts-Callback
+        output_dir: Zielordner. Falls None, wird config.SINGLE_DOWNLOADS_DIR verwendet.
+        speed: Tempo-Faktor (>1 schneller, <1 langsamer). 1.0 = unverändert.
+        crop_x: Normalized X coordinate for cropping (0.0 to 1.0)
+
+    Returns:
+        dict mit Output-Pfad und Metadaten
+    """
+    duration = end_sec - start_sec
+    if duration <= 0:
+        raise ValueError("Clip-Dauer muss positiv sein")
+
+    if output_dir is None:
+        output_dir = config.SINGLE_DOWNLOADS_DIR
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    if mode == "reel":
+        output_path = os.path.join(output_dir, f"{output_name}.mp4")
+        result = _export_reel(video_path, start_sec, duration, output_path, fade, speed=speed, crop_x=crop_x)
+    else:
+        ext = os.path.splitext(video_path)[1].lower()
+        output_path = os.path.join(output_dir, f"{output_name}{ext}")
+        result = _export_raw(video_path, start_sec, duration, output_path, speed=speed)
+
+    return result
+
+
+def _build_overlay_vf(duration, fade=True, look_filter=None, speed=1.0, crop_x=0.5):
+    """
+    Gibt die vollständige vf-Filterkette für einen Reel-Export zurück.
+    Enthält Scale/Crop, Cinematic Look, Fade, Chromatic Aberration,
+    CRT-Scanlines und Film Grain — aber KEIN Logo-Overlay
+    (das braucht filter_complex mit zweitem Input).
+
+    speed != 1.0 → setpts-basierter Tempo-Stretch (BPM-Matching).
+    Fade-Out wird auf die gestretchte Ausgabedauer ausgerichtet.
+    """
+    use_speed, out_dur = _speed_params(duration, speed)
+
+    parts = []
+    if use_speed:
+        parts.append(f"setpts=PTS/{speed:.6f}")
+    parts.append("scale=1080:1920:force_original_aspect_ratio=increase")
+    parts.append(f"crop={config.REEL_WIDTH}:{config.REEL_HEIGHT}:'max(0, min(iw-{config.REEL_WIDTH}, iw*{crop_x}-{config.REEL_WIDTH}/2))':0,setsar=1")
+    parts.append(look_filter if look_filter else CINEMATIC_LOOK_FILTER)
+
+    if fade and config.FADE_DURATION_SEC > 0:
+        fd = config.FADE_DURATION_SEC
+        parts.append(f"fade=t=in:st=0:d={fd}")
+        parts.append(f"fade=t=out:st={max(0.0, out_dur - fd)}:d={fd}")
+
+    shift = getattr(config, "OVERLAY_CHROMA_SHIFT", 0)
+    if shift > 0:
+        parts.append(f"rgbashift=rh={shift}:rv=0:bh=-{shift}:bv=0")
+
+    dark = getattr(config, "OVERLAY_SCANLINE_DARKNESS", 0)
+    if dark > 0:
+        light = round(1.0 - dark, 4)
+        parts.append(
+            f"geq=lum='lum(X,Y)*({light}+{dark:.4f}*gt(mod(Y,4),1))'"
+            f":cb='cb(X,Y)':cr='cr(X,Y)'"
+        )
+
+    grain = getattr(config, "OVERLAY_GRAIN_STRENGTH", 0)
+    if grain > 0:
+        parts.append(f"noise=alls={grain}:allf=t+u")
+
+    return parts
+
+
+def _export_reel(video_path, start_sec, duration, output_path, fade=True, look_filter=None, speed=1.0, crop_x=0.5):
+    """
+    Exportiert im Reel-Format (9:16, 1080x1920) mit allen Overlays.
+    Wenn LOGO_PATH gesetzt ist, wird das Logo via filter_complex eingebrannt.
+    speed != 1.0 → Tempo-Stretch (Video via setpts, Audio via atempo).
+    """
+    use_speed, out_dur = _speed_params(duration, speed)
+    vf_parts = _build_overlay_vf(duration, fade, look_filter, speed, crop_x)
+
+    af_parts = []
+    if use_speed:
+        af_parts.extend(_atempo_chain(speed))
+    if fade and config.FADE_DURATION_SEC > 0:
+        fd = config.FADE_DURATION_SEC
+        af_parts.append(f"afade=t=in:st=0:d={fd}")
+        af_parts.append(f"afade=t=out:st={max(0.0, out_dur - fd)}:d={fd}")
+
+    logo_path = getattr(config, "LOGO_PATH", None)
+    has_logo  = bool(logo_path and os.path.exists(logo_path))
+
+    if has_logo:
+        logo_scale   = getattr(config, "OVERLAY_LOGO_SCALE", 160)
+        logo_opacity = getattr(config, "OVERLAY_LOGO_OPACITY", 0.65)
+        logo_margin  = getattr(config, "OVERLAY_LOGO_MARGIN", 48)
+
+        main_chain = ",".join(vf_parts)
+        # colorkey entfernt den weißen Hintergrund aus alt master.png (similarity 0.30
+        # erfasst reines Weiß sicher ohne in Schwarz/Rot zu greifen, blend=0.10 weiche Kante).
+        # format=rgba erhält den Alpha-Kanal für das nachfolgende overlay.
+        filter_complex = (
+            f"[0:v]{main_chain}[main];"
+            f"[1:v]scale={logo_scale}:-2,"
+            f"colorkey=color=white:similarity=0.30:blend=0.10,"
+            f"format=rgba,"
+            f"colorchannelmixer=aa={logo_opacity}[logo];"
+            f"[main][logo]overlay=W-w-{logo_margin}:H-h-{logo_margin}[out]"
+        )
+        cmd = [
+            "ffmpeg",
+            "-ss", str(start_sec),
+            "-i", video_path,
+            "-loop", "1", "-i", logo_path,
+            "-t", str(out_dur),
+            "-filter_complex", filter_complex,
+            "-map", "[out]",
+            "-map", "0:a?",
+            "-c:v", config.REEL_CODEC,
+            "-b:v", config.REEL_VIDEO_BITRATE,
+            "-preset", config.REEL_PRESET,
+            "-r", str(config.REEL_FPS),
+            "-c:a", config.REEL_AUDIO_CODEC,
+            "-b:a", config.REEL_AUDIO_BITRATE,
+            "-movflags", "+faststart",
+            "-y",
+            output_path,
+        ]
+    else:
+        cmd = [
+            "ffmpeg",
+            "-ss", str(start_sec),
+            "-i", video_path,
+            "-t", str(out_dur),
+            "-vf", ",".join(vf_parts),
+            "-c:v", config.REEL_CODEC,
+            "-b:v", config.REEL_VIDEO_BITRATE,
+            "-preset", config.REEL_PRESET,
+            "-r", str(config.REEL_FPS),
+            "-c:a", config.REEL_AUDIO_CODEC,
+            "-b:a", config.REEL_AUDIO_BITRATE,
+            "-movflags", "+faststart",
+            "-y",
+            output_path,
+        ]
+
+    if af_parts:
+        cmd.insert(-2, "-af")
+        cmd.insert(-2, ",".join(af_parts))
+
+    rc, stderr = _run_ffmpeg(cmd)
+    if rc != 0:
+        return _export_reel_simple(video_path, start_sec, duration, output_path, fade, look_filter, speed, crop_x)
+
+    return {
+        "path": output_path,
+        "filename": os.path.basename(output_path),
+        "duration": duration,
+        "mode": "reel",
+        "resolution": f"{config.REEL_WIDTH}x{config.REEL_HEIGHT}",
+    }
+
+
+def _export_reel_simple(video_path, start_sec, duration, output_path, fade=True, look_filter=None, speed=1.0, crop_x=0.5):
+    """Fallback-Export mit einfacherem Scale-Filter + Overlays (ohne Logo)."""
+    use_speed, out_dur = _speed_params(duration, speed)
+
+    vf_parts = []
+    if use_speed:
+        vf_parts.append(f"setpts=PTS/{speed:.6f}")
+    vf_parts += [
+        "scale=1080:1920:force_original_aspect_ratio=increase",
+        f"crop={config.REEL_WIDTH}:{config.REEL_HEIGHT}:'max(0, min(iw-{config.REEL_WIDTH}, iw*{crop_x}-{config.REEL_WIDTH}/2))':0,setsar=1",
+        look_filter if look_filter else CINEMATIC_LOOK_FILTER,
+    ]
+
+    if fade and config.FADE_DURATION_SEC > 0:
+        fd = config.FADE_DURATION_SEC
+        vf_parts.append(f"fade=t=in:st=0:d={fd}")
+        vf_parts.append(f"fade=t=out:st={max(0.0, out_dur - fd)}:d={fd}")
+
+    shift = getattr(config, "OVERLAY_CHROMA_SHIFT", 0)
+    if shift > 0:
+        vf_parts.append(f"rgbashift=rh={shift}:rv=0:bh=-{shift}:bv=0")
+
+    dark = getattr(config, "OVERLAY_SCANLINE_DARKNESS", 0)
+    if dark > 0:
+        light = round(1.0 - dark, 4)
+        vf_parts.append(
+            f"geq=lum='lum(X,Y)*({light}+{dark:.4f}*gt(mod(Y,4),1))'"
+            f":cb='cb(X,Y)':cr='cr(X,Y)'"
+        )
+
+    grain = getattr(config, "OVERLAY_GRAIN_STRENGTH", 0)
+    if grain > 0:
+        vf_parts.append(f"noise=alls={grain}:allf=t+u")
+
+    vf = ",".join(vf_parts)
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(start_sec),
+        "-i", video_path,
+        "-t", str(out_dur),
+        "-vf", vf,
+        "-c:v", config.REEL_CODEC,
+        "-b:v", config.REEL_VIDEO_BITRATE,
+        "-preset", config.REEL_PRESET,
+        "-r", str(config.REEL_FPS),
+        "-c:a", config.REEL_AUDIO_CODEC,
+        "-b:a", config.REEL_AUDIO_BITRATE,
+        "-movflags", "+faststart",
+        "-y",
+        output_path
+    ]
+
+    if use_speed:
+        cmd.insert(-2, "-af")
+        cmd.insert(-2, ",".join(_atempo_chain(speed)))
+
+    rc, stderr = _run_ffmpeg(cmd)
+    if rc != 0:
+        raise RuntimeError(f"FFmpeg Fehler: {stderr[:500]}")
+
+    return {
+        "path": output_path,
+        "filename": os.path.basename(output_path),
+        "duration": duration,
+        "mode": "reel",
+        "resolution": f"{config.REEL_WIDTH}x{config.REEL_HEIGHT}",
+    }
+
+
+def _export_raw(video_path, start_sec, duration, output_path, look_filter=None, speed=1.0):
+    """
+    Exportiert im Original-Format (mit etwas Padding).
+    Jetzt mit Cinematic Filter (erfordert Re-Encode).
+    speed != 1.0 → Tempo-Stretch; Audio wird dann re-encodiert (atempo statt copy).
+    """
+    padded_start = max(0, start_sec - config.RAW_CLIP_PADDING_SEC)
+    padded_duration = duration + 2 * config.RAW_CLIP_PADDING_SEC
+    use_speed, out_dur = _speed_params(padded_duration, speed)
+
+    vf = look_filter if look_filter else CINEMATIC_LOOK_FILTER
+    if use_speed:
+        vf = f"setpts=PTS/{speed:.6f}," + vf
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(padded_start),
+        "-i", video_path,
+        "-t", str(out_dur),
+        "-vf", vf,
+        "-c:v", config.REEL_CODEC,
+        "-b:v", config.REEL_VIDEO_BITRATE,
+    ]
+    if use_speed:
+        # Stretch erfordert Audio-Re-Encode (copy würde den Ton entkoppeln)
+        cmd += ["-af", ",".join(_atempo_chain(speed)),
+                "-c:a", config.REEL_AUDIO_CODEC, "-b:a", config.REEL_AUDIO_BITRATE]
+    else:
+        cmd += ["-c:a", "copy"]  # Audio kann kopiert werden
+    cmd += ["-movflags", "+faststart", "-y", output_path]
+
+    rc, stderr = _run_ffmpeg(cmd)
+    if rc != 0:
+        raise RuntimeError(f"FFmpeg Fehler: {stderr[:500]}")
+
+    return {
+        "path": output_path,
+        "filename": os.path.basename(output_path),
+        "duration": out_dur,
+        "mode": "raw",
+        "resolution": "original",
+    }
+
+
+def export_batch(video_path, clips, mode="reel", fade=True, progress_callback=None, output_dir=None):
+    """
+    Exportiert mehrere Clips auf einmal.
+    """
+    results = []
+    total = len(clips)
+
+    for i, clip in enumerate(clips):
+        if progress_callback:
+            progress_callback("export", int((i / total) * 100),
+                              f"Exportiere Clip {i + 1}/{total}...")
+
+        try:
+            name = clip.get("name", f"clip_{i + 1:03d}")
+            result = export_clip(
+                video_path,
+                clip["start"],
+                clip["end"],
+                name,
+                mode=mode,
+                fade=fade,
+                output_dir=output_dir,
+                speed=clip.get("speed", 1.0),
+                crop_x=clip.get("crop_x", 0.5)
+            )
+            result["status"] = "success"
+            results.append(result)
+        except Exception as e:
+            results.append({
+                "name": clip.get("name", f"clip_{i + 1}"),
+                "status": "error",
+                "error": str(e)
+            })
+
+    if progress_callback:
+        progress_callback("export", 100, f"{len(results)} Clips exportiert")
+
+    return results
+
+
+def export_montage(clips, output_name, mode="reel", fade=True, progress_callback=None,
+                   output_dir=None, cancel_event=None):
+    """
+    Erstellt eine Montage aus mehreren Clips, die von VERSCHIEDENEN Videos stammen können.
+    clips: Liste von {video_path, start, end}
+    """
+    if not clips:
+        raise ValueError("Keine Clips für Montage angegeben")
+
+    if output_dir is None:
+        output_dir = config.BEST_OF_DIR
+        
+    os.makedirs(output_dir, exist_ok=True)
+    
+    ext = ".mp4" if mode == "reel" else ".mov" # Fallback extension
+    output_path = os.path.join(output_dir, f"{output_name}.mp4")
+
+    # Helligkeits-Normalisierung: Clips mit extremem Highlight-Anteil anpassen
+    from analyzer.clip_normalizer import compute_montage_filters
+    if progress_callback:
+        progress_callback("montage", 2, "Helligkeit der Clips wird analysiert...")
+    look_filters = compute_montage_filters(clips)
+
+    # Temporäre Clips exportieren
+    temp_files = []
+    total = len(clips)
+    concat_list_path = os.path.join(config.TEMP_DIR, f"concat_{output_name}.txt")
+
+    try:
+        for i, clip in enumerate(clips):
+            if cancel_event and cancel_event.is_set():
+                raise RuntimeError("__CANCELLED__")
+
+            v_path = clip["video_path"]
+            if progress_callback:
+                progress_callback("montage", 5 + int((i / total) * 75),
+                                  f"Verarbeite Teil {i + 1}/{total}...")
+
+            temp_name = f"temp_montage_{i:03d}_{output_name}"
+            temp_path = os.path.join(config.TEMP_DIR, f"{temp_name}.mp4")
+            lf = look_filters.get(i)
+            sp = clip.get("speed", 1.0)
+            crop_x = clip.get("crop_x", 0.5)
+
+            if mode == "reel":
+                _export_reel(v_path, clip["start"], clip["end"] - clip["start"], temp_path, fade, lf, sp, crop_x)
+            else:
+                _export_raw(v_path, clip["start"], clip["end"] - clip["start"], temp_path, lf, sp)
+
+            temp_files.append(temp_path)
+
+        if progress_callback:
+            progress_callback("montage", 85, "Clips werden zusammengefügt...")
+
+        # Concat-Liste für FFmpeg erstellen
+        with open(concat_list_path, "w", encoding="utf-8") as f:
+            for tf in temp_files:
+                f.write(f"file '{tf.replace('\\', '/')}'\n")
+
+        # Concat ausführen
+        cmd = [
+            "ffmpeg",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concat_list_path,
+            "-c:v", "copy",  # Einfaches Kopieren da alle identisch sind
+            "-an",           # Originalton für Best-Of / Montage entfernen
+            "-y",
+            output_path
+        ]
+
+        if cancel_event and cancel_event.is_set():
+            raise RuntimeError("__CANCELLED__")
+
+        rc, stderr = _run_ffmpeg(cmd)
+        if rc != 0:
+            raise RuntimeError(f"FFmpeg Concat Fehler: {stderr[:500]}")
+
+        if progress_callback:
+            progress_callback("montage", 100, "Montage fertig!")
+
+        return {
+            "path": output_path,
+            "filename": os.path.basename(output_path),
+            "mode": mode,
+            "clips_count": len(clips)
+        }
+
+    finally:
+        # Temp-Dateien immer aufräumen (auch bei Fehler)
+        if os.path.exists(concat_list_path):
+            os.remove(concat_list_path)
+        for tf in temp_files:
+            if os.path.exists(tf):
+                os.remove(tf)
+
+def export_seamless_loop(video_path, start_sec, end_sec, output_name, mode="reel", progress_callback=None, output_dir=None, speed=1.0):
+    """
+    Erstellt einen perfekten Seamless Loop (Split & Swap Technik).
+    Teilt den Clip in der Mitte, setzt Teil B vor Teil A und verbindet sie mit einem Crossfade.
+    So sind Anfang und Ende des fertigen Clips das exakte selbe Frame.
+    speed != 1.0 → beide Hälften werden gestretcht (BPM-Matching).
+    """
+    if output_dir is None:
+        output_dir = config.BEST_OF_DIR
+        
+    os.makedirs(output_dir, exist_ok=True)
+    ext = ".mp4" if mode == "reel" else ".mov"
+    output_path = os.path.join(output_dir, f"{output_name}{ext}")
+
+    duration = end_sec - start_sec
+    if duration <= 2.0:
+        raise ValueError("Clip für Loop muss länger als 2 Sekunden sein")
+
+    mid_point = start_sec + (duration / 2.0)
+    dur_A = mid_point - start_sec
+    dur_B = end_sec - mid_point
+
+    temp_A = os.path.join(config.TEMP_DIR, f"temp_loop_A_{output_name}.mp4")
+    temp_B = os.path.join(config.TEMP_DIR, f"temp_loop_B_{output_name}.mp4")
+
+    try:
+        if progress_callback: progress_callback("loop", 10, "Exportiere Teil 1...")
+        # Export A (ohne fade)
+        if mode == "reel":
+            _export_reel(video_path, start_sec, dur_A, temp_A, fade=False, speed=speed)
+        else:
+            _export_raw(video_path, start_sec, dur_A, temp_A, speed=speed)
+
+        if progress_callback: progress_callback("loop", 40, "Exportiere Teil 2...")
+        # Export B (ohne fade)
+        if mode == "reel":
+            _export_reel(video_path, mid_point, dur_B, temp_B, fade=False, speed=speed)
+        else:
+            _export_raw(video_path, mid_point, dur_B, temp_B, speed=speed)
+
+        if progress_callback: progress_callback("loop", 70, "Verknüpfe zum Seamless Loop...")
+
+        # Crossfade B into A (B is first, A is second)
+        # offset bezieht sich auf die GESTRETCHTE Länge von Teil B
+        fade_dur = 0.3
+        _use_sp, eff_dur_B = _speed_params(dur_B, speed)
+        offset = max(0.1, eff_dur_B - fade_dur)
+
+        cmd = [
+            "ffmpeg",
+            "-i", temp_B,
+            "-i", temp_A,
+            "-filter_complex",
+            f"[0:v][1:v]xfade=transition=fade:duration={fade_dur}:offset={offset}[v];[0:a][1:a]acrossfade=d={fade_dur}[a]",
+            "-map", "[v]",
+            "-map", "[a]",
+            "-c:v", config.REEL_CODEC,
+            "-b:v", config.REEL_VIDEO_BITRATE,
+            "-c:a", config.REEL_AUDIO_CODEC,
+            "-b:a", config.REEL_AUDIO_BITRATE,
+            "-y",
+            output_path
+        ]
+
+        rc, stderr = _run_ffmpeg(cmd)
+        if rc != 0:
+            raise RuntimeError(f"FFmpeg Loop Fehler: {stderr[:500]}")
+
+        if progress_callback: progress_callback("loop", 100, "Seamless Loop fertig!")
+
+        return {
+            "path": output_path,
+            "filename": os.path.basename(output_path),
+            "mode": mode,
+            "duration": dur_A + dur_B - fade_dur
+        }
+
+    finally:
+        if os.path.exists(temp_A): os.remove(temp_A)
+        if os.path.exists(temp_B): os.remove(temp_B)
+
+```
+
+### `analyzer/clip_normalizer.py`
+
+```python
+"""
+Clip Brightness Normalizer
+Analysiert Clips auf extreme Helligkeit und berechnet adaptive
+eq-Filter damit alle Clips einer Montage visuell zusammenpassen.
+"""
+
+import cv2
+import numpy as np
+
+# Wie viel heller ein Clip sein darf, bevor er korrigiert wird
+_BRIGHT_THRESHOLD = 1.30   # >30% über Median → Korrektur einsetzen
+_SAMPLES = 6                # Frames pro Clip für Helligkeits-Messung
+
+
+def sample_clip_brightness(video_path: str, start: float, end: float) -> float:
+    """
+    Misst die mittlere Luminanz eines Clip-Abschnitts (0–255).
+    Sampelt SAMPLES Frames gleichmäßig über die Clip-Dauer.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return 100.0  # Fallback
+
+    fps      = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    duration = max(0.1, end - start)
+    values   = []
+
+    for i in range(_SAMPLES):
+        t = start + duration * (i + 0.5) / _SAMPLES
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        values.append(float(np.mean(gray)))
+
+    cap.release()
+    return float(np.mean(values)) if values else 100.0
+
+
+def build_look_filter(clip_brightness: float, target_brightness: float) -> str:
+    """
+    Gibt einen FFmpeg eq-Filter-String zurück, der für diesen Clip passend ist.
+
+    Zu helle Clips werden per gamma + brightness-Anpassung an den Median angenähert.
+    Der Standard-Cinematic-Look wird dabei als Basis beibehalten.
+
+    clip_brightness : gemessene mittlere Luminanz des Clips (0–255)
+    target_brightness: Ziel-Luminanz (Median aller Montage-Clips)
+    """
+    ratio = clip_brightness / max(target_brightness, 20)
+
+    if ratio <= _BRIGHT_THRESHOLD:
+        # Normaler Bereich: Standard-Cinematic-Look
+        return "eq=contrast=1.05:brightness=-0.02:saturation=0.9"
+
+    # Intensität der Korrektur: 0.0 (bei threshold) bis 1.0 (ab 2× Median)
+    intensity = min((ratio - _BRIGHT_THRESHOLD) / (2.0 - _BRIGHT_THRESHOLD), 1.0)
+
+    # Gamma < 1 dunkelt Lichter stärker als Schatten ab → natürlichere Wirkung
+    gamma      = round(1.0  - intensity * 0.25,  2)   # 1.0  → 0.75
+    brightness = round(-0.02 - intensity * 0.18, 3)   # -0.02 → -0.20
+    contrast   = round(1.05  + intensity * 0.10,  2)   # 1.05  → 1.15
+    saturation = round(0.90  - intensity * 0.08,  2)   # 0.90  → 0.82
+
+    return (
+        f"eq=contrast={contrast}:brightness={brightness}"
+        f":saturation={saturation}:gamma={gamma}"
+    )
+
+
+def compute_montage_filters(clips: list) -> dict:
+    """
+    Analysiert alle Clips einer Montage und gibt ein Dict
+    { clip_index: eq_filter_string } zurück.
+
+    clips: Liste von {'video_path': str, 'start': float, 'end': float}
+    """
+    brightnesses = []
+    for clip in clips:
+        b = sample_clip_brightness(clip["video_path"], clip["start"], clip["end"])
+        brightnesses.append(b)
+
+    if not brightnesses:
+        return {}
+
+    median = float(np.median(brightnesses))
+
+    filters = {}
+    for i, (clip, brightness) in enumerate(zip(clips, brightnesses)):
+        filters[i] = build_look_filter(brightness, median)
+
+    return filters
+
+```
+
+### `analyzer/frame_hasher.py`
+
+```python
+"""
+Frame Hasher – Difference Hash (dHash) zur Erkennung visuell ähnlicher Clips.
+Nutzt FFmpeg für Frame-Extraktion und numpy für die Hash-Berechnung.
+Keine zusätzlichen Dependencies nötig.
+"""
+
+import subprocess
+import numpy as np
+
+
+def dhash(video_path: str, time_sec: float, hash_size: int = 8) -> int | None:
+    """
+    Berechnet den Difference-Hash eines Frames bei time_sec.
+
+    dHash vergleicht jedes Pixel mit dem rechten Nachbarn (8×8 = 64 Bits).
+    Gibt None zurück wenn der Frame nicht extrahierbar ist.
+    """
+    w, h = hash_size + 1, hash_size  # 9×8 Pixel → 64 horizontale Differenzen
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(max(0.0, time_sec)),
+        "-i", video_path,
+        "-frames:v", "1",
+        "-f", "rawvideo",
+        "-pix_fmt", "gray",
+        "-vf", f"scale={w}:{h}",
+        "-",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=8)
+        if result.returncode != 0 or len(result.stdout) < w * h:
+            return None
+        pixels = np.frombuffer(result.stdout[: w * h], dtype=np.uint8).reshape(h, w)
+        diff = pixels[:, :-1] > pixels[:, 1:]
+        return int.from_bytes(np.packbits(diff.flatten()).tobytes(), byteorder="big")
+    except Exception:
+        return None
+
+
+def hamming(h1: int, h2: int) -> int:
+    """Anzahl unterschiedlicher Bits zwischen zwei Hashes."""
+    return bin(h1 ^ h2).count("1")
+
+
+def filter_duplicates(clips: list, threshold: int = 6) -> list:
+    """
+    Entfernt visuell ähnliche Clips aus einer nach Score sortierten Liste.
+
+    Für jeden Clip wird der Frame bei der Mitte des Zeitfensters gehasht und
+    mit allen bereits akzeptierten Clips verglichen.
+    Hamming-Distanz ≤ threshold → Duplikat → überspringen.
+
+    threshold=6 ≈ 90% Bildähnlichkeit — fängt echte Duplikate ohne false positives
+    bei typischen DJ-Performance-Videos (schnelle Lichtwechsel, hohe Dynamik).
+    """
+    if not clips:
+        return clips
+
+    accepted = []
+    hashes: list[int | None] = []
+
+    for clip in clips:
+        mid = (clip["start"] + clip["end"]) / 2
+        h = dhash(clip["video_path"], mid)
+
+        if h is None:
+            # Frame nicht extrahierbar → Clip trotzdem aufnehmen
+            accepted.append(clip)
+            hashes.append(None)
+            continue
+
+        is_dup = any(
+            eh is not None and hamming(h, eh) <= threshold
+            for eh in hashes
+        )
+        if not is_dup:
+            accepted.append(clip)
+            hashes.append(h)
+
+    return accepted
+
+```
+
+### `analyzer/highlight_engine.py`
+
+```python
+"""
+Highlight Scoring Engine.
+Kombiniert Audio- und Video-Analyse-Ergebnisse zu einem Highlight-Score
+und generiert optimale Cut-Punkte für Social Media Reels.
+"""
+
+import numpy as np
+import config
+
+
+def compute_highlights(audio_results, video_results):
+    """
+    Kombiniert Audio- und Video-Scores zu einem Highlight-Score pro Zeitfenster.
+    """
+    duration = max(audio_results.get("duration", 0), video_results.get("duration", 0))
+    if duration <= 0:
+        return {"timeline": [], "highlights": [], "suggested_clips": []}
+
+    # Timeline in 0.5-Sekunden-Schritten
+    time_step = 0.5
+    timeline_points = np.arange(0, duration, time_step)
+
+    # --- Score-Kanäle berechnen ---
+    audio_energy_score = _compute_energy_score(
+        audio_results.get("energy_envelope", []),
+        audio_results.get("energy_times", []),
+        timeline_points
+    )
+
+    bass_drop_score = _compute_event_score(
+        [d["time"] for d in audio_results.get("bass_drops", [])],
+        [d["intensity"] for d in audio_results.get("bass_drops", [])],
+        timeline_points,
+        spread_sec=3.0
+    )
+
+    motion_score = _compute_motion_score(
+        video_results.get("motion_intensity", []),
+        timeline_points
+    )
+
+    scene_score = _compute_event_score(
+        video_results.get("scene_changes", []),
+        None,
+        timeline_points,
+        spread_sec=1.0
+    )
+
+    light_score = _compute_event_score(
+        [l["time"] for l in video_results.get("light_effects", [])],
+        [l["intensity"] for l in video_results.get("light_effects", [])],
+        timeline_points,
+        spread_sec=1.5
+    )
+
+    # --- Buildup-Bonus ---
+    buildup_bonus = np.zeros(len(timeline_points))
+    for bu in audio_results.get("buildups", []):
+        end_time = bu["end"]
+        for i, t in enumerate(timeline_points):
+            if end_time <= t <= end_time + 4.0:
+                buildup_bonus[i] = max(buildup_bonus[i], bu.get("intensity", 0.5))
+
+    # --- Gewichteter Gesamt-Score ---
+    combined_score = (
+        config.WEIGHT_AUDIO_ENERGY * audio_energy_score +
+        config.WEIGHT_BASS_DROPS * (bass_drop_score + buildup_bonus * 0.5) +
+        config.WEIGHT_VISUAL_MOTION * motion_score +
+        config.WEIGHT_SCENE_CHANGES * scene_score +
+        config.WEIGHT_LIGHT_EFFECTS * light_score
+    )
+
+    # Sync-Bonus: Audio + Video Energie gleichzeitig (Golden Moments)
+    sync_mask = (audio_energy_score > 0.6) & (motion_score > 0.6)
+    combined_score[sync_mask] *= 1.2 # 20% Boost für synchronisierte Highlights
+
+    # Transition Bonus: Momente kurz vor/nach Blackouts/Whiteouts
+    transition_bonus = _compute_event_score(
+        [t["time"] for t in video_results.get("transition_points", [])],
+        [t["intensity"] for t in video_results.get("transition_points", [])],
+        timeline_points,
+        spread_sec=1.0
+    )
+    combined_score += transition_bonus * 0.2
+
+    # Normalisieren
+    max_score = combined_score.max() if combined_score.max() > 0 else 1.0
+    combined_score = combined_score / max_score
+
+    # --- Timeline erstellen ---
+    timeline = []
+    for i, t in enumerate(timeline_points):
+        timeline.append({
+            "time": round(float(t), 2),
+            "score": round(float(combined_score[i]), 4),
+            "components": {
+                "audio_energy": round(float(audio_energy_score[i]), 4),
+                "bass_drops": round(float(bass_drop_score[i]), 4),
+                "motion": round(float(motion_score[i]), 4),
+                "scenes": round(float(scene_score[i]), 4),
+                "lights": round(float(light_score[i]), 4),
+            }
+        })
+
+    # --- Highlights extrahieren ---
+    highlights = _extract_highlight_regions(timeline_points, combined_score)
+
+    # --- Clip-Vorschläge generieren ---
+    suggested_clips = _generate_clip_suggestions(
+        highlights, timeline_points, combined_score,
+        audio_results.get("beat_times", []), duration,
+        video_results.get("tracking_data", [])
+    )
+
+    return {
+        "timeline": timeline,
+        "highlights": highlights,
+        "suggested_clips": suggested_clips,
+        "transition_points": video_results.get("transition_points", []),
+    }
+
+
+def _compute_energy_score(energy_envelope, energy_times, timeline_points):
+    """Interpoliert die Audio-Energie auf die Timeline."""
+    score = np.zeros(len(timeline_points))
+    if not energy_envelope or not energy_times:
+        return score
+
+    energy = np.array(energy_envelope)
+    times = np.array(energy_times)
+
+    score = np.interp(timeline_points, times, energy)
+    return score
+
+
+def _compute_event_score(event_times, event_intensities, timeline_points, spread_sec=2.0):
+    """Erstellt einen Score-Kanal aus diskreten Events mit Gauss-Spread."""
+    score = np.zeros(len(timeline_points))
+    if not event_times:
+        return score
+
+    for i, t in enumerate(event_times):
+        intensity = event_intensities[i] if event_intensities and i < len(event_intensities) else 1.0
+        # Gauss-artige Verteilung um den Event
+        distances = np.abs(timeline_points - t)
+        contribution = intensity * np.exp(-(distances ** 2) / (2 * (spread_sec / 2) ** 2))
+        score += contribution
+
+    # Normalisieren
+    if score.max() > 0:
+        score = score / score.max()
+
+    return score
+
+
+def _compute_motion_score(motion_data, timeline_points):
+    """Interpoliert Motion-Intensität auf die Timeline."""
+    score = np.zeros(len(timeline_points))
+    if not motion_data:
+        return score
+
+    times = np.array([m["time"] for m in motion_data])
+    intensities = np.array([m["intensity"] for m in motion_data])
+
+    if len(times) > 0:
+        score = np.interp(timeline_points, times, intensities)
+
+    return score
+
+
+def _extract_highlight_regions(timeline_points, combined_score):
+    """Findet zusammenhängende Highlight-Regionen über dem Schwellenwert."""
+    highlights = []
+    threshold = config.HIGHLIGHT_SCORE_THRESHOLD
+
+    in_highlight = False
+    start_idx = 0
+
+    for i in range(len(combined_score)):
+        if combined_score[i] >= threshold and not in_highlight:
+            in_highlight = True
+            start_idx = i
+        elif (combined_score[i] < threshold or i == len(combined_score) - 1) and in_highlight:
+            in_highlight = False
+            region_scores = combined_score[start_idx:i + 1]
+            peak_idx = start_idx + np.argmax(region_scores)
+            highlights.append({
+                "start": round(float(timeline_points[start_idx]), 2),
+                "end": round(float(timeline_points[min(i, len(timeline_points) - 1)]), 2),
+                "peak_time": round(float(timeline_points[peak_idx]), 2),
+                "peak_score": round(float(combined_score[peak_idx]), 4),
+                "avg_score": round(float(np.mean(region_scores)), 4),
+            })
+
+    # Nach Score sortieren
+    highlights.sort(key=lambda h: h["peak_score"], reverse=True)
+
+    # Mindestabstand zwischen Highlights erzwingen
+    filtered = []
+    for h in highlights:
+        too_close = False
+        for existing in filtered:
+            if abs(h["peak_time"] - existing["peak_time"]) < config.HIGHLIGHT_MIN_GAP_SEC:
+                too_close = True
+                break
+        if not too_close:
+            filtered.append(h)
+
+    return filtered
+
+
+def _generate_clip_suggestions(highlights, timeline_points, combined_score, beat_times, duration, tracking_data=None):
+    """
+    Generiert Clip-Vorschläge basierend auf Highlights und Reel-Presets.
+    Richtet Start/Ende auf Beat-Grenzen aus.
+    """
+    if tracking_data is None:
+        tracking_data = []
+
+    suggestions = []
+    beat_times = np.array(beat_times) if beat_times else np.array([])
+
+    for preset_key, preset in config.REEL_PRESETS.items():
+        clip_duration = preset["duration"]
+
+        for highlight in highlights[:40]:  # Max 40 Highlights pro Preset
+            peak_time = highlight["peak_time"]
+
+            # Clip um den Peak zentrieren
+            raw_start = peak_time - clip_duration * 0.4  # Peak etwas nach links
+            raw_end = raw_start + clip_duration
+
+            # Grenzen prüfen
+            if raw_start < 0:
+                raw_start = 0
+                raw_end = clip_duration
+            if raw_end > duration:
+                raw_end = duration
+                raw_start = max(0, duration - clip_duration)
+
+            # Auf Beat-Grenzen ausrichten
+            start = _snap_to_beat(raw_start, beat_times)
+            end = _snap_to_beat(raw_end, beat_times)
+
+            # Sicherstellen, dass der Clip nicht zu kurz ist
+            if end - start < clip_duration * 0.8:
+                end = start + clip_duration
+
+            if end > duration:
+                end = duration
+
+            # Durchschnittlichen Score im Clip berechnen
+            clip_mask = (timeline_points >= start) & (timeline_points <= end)
+            if np.any(clip_mask):
+                avg_score = float(np.mean(combined_score[clip_mask]))
+            else:
+                avg_score = highlight["avg_score"]
+
+            # Tracking/Auto-Framing: X-Koordinate für den Crop berechnen
+            crop_x = 0.5
+            if tracking_data:
+                xs = [pt["x_center"] for pt in tracking_data if start <= pt["time"] <= end]
+                if xs:
+                    crop_x = sum(xs) / len(xs)
+
+            suggestions.append({
+                "start": round(float(start), 2),
+                "end": round(float(end), 2),
+                "duration": round(float(end - start), 2),
+                "preset": preset_key,
+                "preset_label": preset["label"],
+                "score": round(avg_score, 4),
+                "peak_time": highlight["peak_time"],
+                "highlight_score": highlight["peak_score"],
+                "crop_x": round(crop_x, 4)
+            })
+
+    # Nach Score sortieren und Überlappungen entfernen
+    suggestions.sort(key=lambda s: s["score"], reverse=True)
+    suggestions = _remove_overlapping_clips(suggestions)
+
+    return suggestions
+
+
+def _snap_to_beat(time_sec, beat_times):
+    """Richtet einen Zeitpunkt am nächsten Beat aus."""
+    if len(beat_times) == 0:
+        return time_sec
+
+    # Nächsten Beat finden
+    diffs = np.abs(beat_times - time_sec)
+    nearest_idx = np.argmin(diffs)
+
+    # Nur snappen wenn der Beat nah genug ist (< 0.5s)
+    if diffs[nearest_idx] < 0.5:
+        return float(beat_times[nearest_idx])
+
+    return time_sec
+
+
+def _remove_overlapping_clips(clips):
+    """Entfernt überlappende Clips (behält den mit höherem Score)."""
+    if not clips:
+        return clips
+
+    filtered = [clips[0]]
+    for clip in clips[1:]:
+        overlaps = False
+        for existing in filtered:
+            # Prüfe Überlappung
+            if clip["start"] < existing["end"] and clip["end"] > existing["start"]:
+                # Gleicher Preset? Dann überspringen
+                if clip["preset"] == existing["preset"]:
+                    overlaps = True
+                    break
+        if not overlaps:
+            filtered.append(clip)
+
+    return filtered
+
+```
+
+### `analyzer/tracking_engine.py`
+
+```python
+import cv2
+import math
+from ultralytics import YOLO
+
+# Globale YOLO Modell-Instanz (wird lazy geladen, um Startzeit zu minimieren)
+_model = None
+
+def get_yolo_model():
+    global _model
+    if _model is None:
+        # yolo11n.pt wird automatisch heruntergeladen, falls nicht lokal vorhanden
+        _model = YOLO("yolo11n.pt")
+    return _model
+
+def analyze_tracking(video_path, fps=1.0, progress_callback=None):
+    """
+    Führt YOLO-basiertes Tracking von Personen (Klasse 0) im Video durch.
+    
+    Args:
+        video_path: Pfad zum Video
+        fps: Wie viele Frames pro Sekunde für Tracking analysiert werden sollen (z.B. 1 oder 2)
+        progress_callback: Callback für Fortschritt
+        
+    Returns:
+        Liste von Dicts: [{"time": 0.0, "x_center": 0.5}, ...]
+    """
+    try:
+        model = get_yolo_model()
+    except Exception as e:
+        print(f"YOLO konnte nicht geladen werden: {e}")
+        return []
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+
+    video_fps = cap.get(cv2.CAP_PROP_FPS)
+    if video_fps <= 0:
+        video_fps = 30.0
+    
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_interval = max(1, int(video_fps / fps))
+    
+    tracking_data = []
+    
+    frame_idx = 0
+    analyzed = 0
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        if frame_idx % frame_interval == 0:
+            current_time = frame_idx / video_fps
+            
+            # Verkleinern für schnellere Inferenz (640px ist Standard für YOLOn)
+            # YOLO skaliert intern sowieso, aber OpenCV resize spart Speicher/Zeit beim Übergeben
+            results = model.predict(frame, classes=[0], verbose=False, imgsz=640)
+            
+            best_person = None
+            max_area = 0
+            
+            if len(results) > 0:
+                boxes = results[0].boxes
+                for box in boxes:
+                    # box.xyxy: [x1, y1, x2, y2]
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    area = (x2 - x1) * (y2 - y1)
+                    if area > max_area:
+                        max_area = area
+                        # Mitte berechnen und normalisieren
+                        x_center = (x1 + x2) / 2.0
+                        norm_x = float(x_center / frame.shape[1])
+                        best_person = norm_x
+                        
+            # Wenn Person gefunden, X-Koordinate speichern (sonst 0.5 als Fallback in der späteren Verarbeitung)
+            if best_person is not None:
+                tracking_data.append({
+                    "time": round(current_time, 2),
+                    "x_center": round(best_person, 4)
+                })
+                
+            analyzed += 1
+            if progress_callback and analyzed % 10 == 0:
+                pct = int((frame_idx / max(total_frames, 1)) * 100)
+                progress_callback("tracking", pct, f"Tracking: Frame {frame_idx}/{total_frames} (Auto-Framing)")
+
+        frame_idx += 1
+        
+    cap.release()
+    return tracking_data
+
+```
+
+### `analyzer/video_analyzer.py`
+
+```python
+"""
+Video Analyzer für DJ-Performance Videos.
+Erkennt Szenenwechsel, Bewegungsintensität und Lichteffekte.
+"""
+
+import cv2
+import numpy as np
+from scenedetect import detect, ContentDetector, AdaptiveDetector
+import config
+import subprocess
+import os
+import json
+from analyzer import tracking_engine
+
+
+def analyze_video(video_path, progress_callback=None):
+    """
+    Führt vollständige visuelle Analyse durch.
+    
+    Returns:
+        dict mit:
+        - scene_changes: Liste von Zeitpunkten (Szenenwechsel)
+        - motion_intensity: Array von {time, intensity} Werten
+        - light_effects: Liste von {time, intensity} Lichteffekt-Events
+        - resolution: {width, height}
+        - fps: Framerate
+        - duration: Dauer in Sekunden
+    """
+    if progress_callback:
+        progress_callback("video", 0, "Video-Info wird gelesen...")
+
+    # Video-Info holen
+    video_info = _get_video_info(video_path)
+
+    if progress_callback:
+        progress_callback("video", 10, "Szenenwechsel werden erkannt...")
+
+    # Scene Detection
+    scene_changes = _detect_scenes(video_path)
+
+    if progress_callback:
+        progress_callback("video", 40, "Bewegung wird analysiert...")
+
+    # Motion Intensity + Light Effects (in einem Durchgang)
+    motion_data, light_effects, transition_points = _analyze_motion_and_light(
+        video_path, video_info, progress_callback
+    )
+
+    if progress_callback:
+        progress_callback("video", 95, "Video-Analyse abgeschlossen")
+
+    # Thumbnail generieren
+    _generate_thumbnail(video_path)
+
+    # YOLO Tracking
+    if progress_callback:
+        progress_callback("video", 96, "Starte Personen-Tracking (Auto-Framing)...")
+    tracking_data = tracking_engine.analyze_tracking(video_path, fps=1.0, progress_callback=progress_callback)
+
+    results = {
+        "scene_changes": scene_changes,
+        "motion_intensity": motion_data,
+        "light_effects": light_effects,
+        "transition_points": transition_points,
+        "tracking_data": tracking_data,
+        "resolution": {
+            "width": video_info["width"],
+            "height": video_info["height"]
+        },
+        "fps": video_info["fps"],
+        "duration": video_info["duration"],
+    }
+
+    if progress_callback:
+        progress_callback("video", 100, "Video-Analyse fertig")
+
+    return results
+
+
+def _get_video_info(video_path):
+    """Liest Video-Metadaten via OpenCV."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Video kann nicht geöffnet werden: {video_path}")
+
+    info = {
+        "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        "fps": cap.get(cv2.CAP_PROP_FPS),
+        "frame_count": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+        "duration": 0,
+    }
+    if info["fps"] > 0:
+        info["duration"] = info["frame_count"] / info["fps"]
+
+    cap.release()
+    return info
+
+
+def _detect_scenes(video_path):
+    """Erkennt Szenenwechsel mit PySceneDetect."""
+    scene_changes = []
+
+    try:
+        # ContentDetector für harte Schnitte
+        scene_list = detect(video_path, ContentDetector(threshold=config.SCENE_THRESHOLD))
+        for scene in scene_list:
+            scene_changes.append(scene[0].get_seconds())
+    except Exception as e:
+        print(f"Scene detection Fehler: {e}")
+
+    return scene_changes
+
+
+def _analyze_motion_and_light(video_path, video_info, progress_callback=None):
+    """
+    Analysiert Bewegungsintensität und Lichteffekte in einem Durchgang.
+    Sampelt nur jeden N-ten Frame für Performance.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return [], [], []
+
+    fps = video_info["fps"]
+    total_frames = video_info["frame_count"]
+
+    # Nur jeden 6. Frame analysieren (ca. 5 fps bei 30fps Video)
+    sample_interval = max(1, int(fps / 5))
+
+    motion_data = []
+    light_effects = []
+    transition_points = [] # Neu: Für Blackouts/Whiteouts
+
+    prev_gray = None
+    prev_brightness = None
+    frame_idx = 0
+    analyzed = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame_idx % sample_interval == 0:
+            # In Graustufen konvertieren
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Verkleinern für Performance
+            small_gray = cv2.resize(gray, (320, 240))
+
+            current_time = frame_idx / fps
+
+            # --- Motion ---
+            if prev_gray is not None:
+                # Frame-Differenz
+                diff = cv2.absdiff(small_gray, prev_gray)
+                motion_value = float(np.mean(diff)) / 255.0  # Normalisiert 0-1
+                motion_data.append({
+                    "time": round(current_time, 2),
+                    "intensity": round(motion_value, 4)
+                })
+
+            # --- Lichteffekte & Helligkeit ---
+            brightness = float(np.mean(small_gray))
+            
+            # Blackout Erkennung (sehr dunkel)
+            if brightness < 15:
+                transition_points.append({
+                    "time": round(current_time, 2),
+                    "type": "blackout",
+                    "intensity": round(1.0 - (brightness / 15.0), 4)
+                })
+            
+            # Whiteout Erkennung (sehr hell)
+            elif brightness > 230:
+                transition_points.append({
+                    "time": round(current_time, 2),
+                    "type": "whiteout",
+                    "intensity": round((brightness - 230.0) / 25.0, 4)
+                })
+
+            if prev_brightness is not None:
+                brightness_change = abs(brightness - prev_brightness)
+                if brightness_change > config.BRIGHTNESS_CHANGE_THRESHOLD:
+                    light_effects.append({
+                        "time": round(current_time, 2),
+                        "intensity": round(min(brightness_change / 100.0, 1.0), 4)
+                    })
+
+            prev_gray = small_gray
+            prev_brightness = brightness
+            analyzed += 1
+
+            # Progress Update alle 100 analysierten Frames
+            if progress_callback and analyzed % 100 == 0:
+                pct = 40 + int((frame_idx / max(total_frames, 1)) * 50)
+                progress_callback("video", min(pct, 90),
+                                  f"Frame {frame_idx}/{total_frames} analysiert...")
+
+        frame_idx += 1
+
+    cap.release()
+
+    # Motion normalisieren (relativ zum Maximum)
+    if motion_data:
+        max_motion = max(m["intensity"] for m in motion_data) or 1.0
+        for m in motion_data:
+            m["intensity"] = round(m["intensity"] / max_motion, 4)
+
+    return motion_data, light_effects, transition_points
+
+
+def _generate_thumbnail(video_path):
+    """Generiert ein Thumbnail-Bild vom Video."""
+    basename = os.path.splitext(os.path.basename(video_path))[0]
+    thumb_path = os.path.join(config.THUMBNAILS_DIR, f"{basename}.jpg")
+
+    if os.path.exists(thumb_path):
+        return thumb_path
+
+    try:
+        cmd = [
+            "ffmpeg", "-i", video_path,
+            "-ss", "00:00:05",  # 5 Sekunden rein
+            "-vframes", "1",
+            "-vf", "scale=320:-1",
+            "-y",
+            thumb_path
+        ]
+        subprocess.run(cmd, capture_output=True, check=True, timeout=30)
+    except Exception as e:
+        print(f"Thumbnail-Generierung fehlgeschlagen für {video_path}: {e}")
+        thumb_path = None
+
+    return thumb_path
+
+```
+
+### `analyzer/watermark_detector.py`
+
+```python
+"""
+CapCut Watermark Detector
+Erkennt CapCut-Wasserzeichen anhand von Helligkeitsmustern
+im typischen Wasserzeichen-Bereich (unterer Bildbereich, Mitte).
+"""
+
+import cv2
+import numpy as np
+
+# Wasserzeichen-Region (relative Koordinaten)
+_WM_REGION = {
+    'portrait':  {'x': (0.18, 0.82), 'y': (0.80, 0.95)},  # 9:16
+    'landscape': {'x': (0.25, 0.75), 'y': (0.83, 0.96)},  # 16:9
+}
+
+_SAMPLE_FPS    = 4      # Frames pro Sekunde für Sampling
+_SCAN_WINDOW   = 6.0    # Sekunden vorne/hinten scannen
+_REL_BRIGHTNESS = 28    # Region muss X heller als Frame-Durchschnitt sein
+_BRIGHT_MIN    = 155    # Schwellwert für "hell" (0–255)
+_BRIGHT_FRAC   = 0.30   # Mindestanteil heller Pixel in der Region
+_MIN_DURATION  = 0.4    # Mindestdauer eines WM-Blocks (Sekunden)
+
+
+def _score_frame(frame, region: dict) -> bool:
+    """
+    True wenn im WM-Bereich ein Wasserzeichen-typisches Muster erkannt wird.
+
+    Robustheit gegen Strobe/Lichteffekte: Die Region muss RELATIV heller
+    sein als der Frame-Durchschnitt. Globale Flashes triggern nicht.
+    """
+    h, w = frame.shape[:2]
+    x1, x2 = int(w * region['x'][0]), int(w * region['x'][1])
+    y1, y2 = int(h * region['y'][0]), int(h * region['y'][1])
+
+    wm_roi    = frame[y1:y2, x1:x2]
+    wm_gray   = cv2.cvtColor(wm_roi, cv2.COLOR_BGR2GRAY)
+    full_gray = cv2.cvtColor(frame,  cv2.COLOR_BGR2GRAY)
+
+    wm_mean    = float(np.mean(wm_gray))
+    full_mean  = float(np.mean(full_gray))
+    bright_frac = float(np.sum(wm_gray > _BRIGHT_MIN) / wm_gray.size)
+
+    return (wm_mean - full_mean) > _REL_BRIGHTNESS and bright_frac > _BRIGHT_FRAC
+
+
+def _find_block(scored: list, from_start: bool, total: float) -> float:
+    """
+    Findet die Länge eines zusammenhängenden WM-Blocks
+    am Anfang (from_start=True) oder am Ende (from_start=False).
+    """
+    if not scored:
+        return 0.0
+
+    if from_start:
+        if not scored[0][1]:
+            return 0.0
+        last_wm_ts = 0.0
+        for ts, has_wm in scored:
+            if has_wm:
+                last_wm_ts = ts
+            else:
+                break
+        return round(last_wm_ts + 1.0 / _SAMPLE_FPS, 2)
+    else:
+        if not scored[-1][1]:
+            return 0.0
+        first_wm_ts = scored[-1][0]
+        for ts, has_wm in reversed(scored):
+            if has_wm:
+                first_wm_ts = ts
+            else:
+                break
+        return round(total - first_wm_ts, 2)
+
+
+def detect_capcut_watermark(video_path: str) -> dict:
+    """
+    Scannt Anfang und Ende des Videos auf CapCut-Wasserzeichen.
+
+    Returns:
+        {
+            'detected':   bool,
+            'trim_start': float,  # Sekunden am Anfang abschneiden
+            'trim_end':   float,  # Sekunden am Ende abschneiden
+            'duration':   float,  # Gesamtlänge in Sekunden
+        }
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return {'detected': False, 'trim_start': 0.0, 'trim_end': 0.0,
+                'duration': 0.0, 'error': 'Cannot open video'}
+
+    fps          = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration     = total_frames / fps
+    width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    region = _WM_REGION['portrait' if height > width else 'landscape']
+    step   = max(1, int(fps / _SAMPLE_FPS))
+    scan_n = min(int(_SCAN_WINDOW * fps), total_frames // 3)
+
+    def _scan(indices):
+        results = []
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            results.append((idx / fps, _score_frame(frame, region)))
+        return results
+
+    start_scores = _scan(range(0, scan_n, step))
+    end_scores   = _scan(range(total_frames - scan_n, total_frames, step))
+    cap.release()
+
+    trim_start = _find_block(start_scores, from_start=True,  total=duration)
+    trim_end   = _find_block(end_scores,   from_start=False, total=duration)
+
+    if trim_start < _MIN_DURATION:
+        trim_start = 0.0
+    if trim_end < _MIN_DURATION:
+        trim_end = 0.0
+
+    return {
+        'detected':   trim_start > 0 or trim_end > 0,
+        'trim_start': trim_start,
+        'trim_end':   trim_end,
+        'duration':   round(duration, 2),
+    }
+
+```
+
+### `tests/__init__.py`
+
+```python
+
+```
+
+### `tests/test_audio_sync.py`
+
+```python
+"""Offline tests for audio_sync.py – cross-correlation on synthetic signals."""
+import unittest
+import json
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+import audio_sync as asy
+
+
+class TestRms(unittest.TestCase):
+    def test_rms_of_constant(self):
+        y = np.full(1000, 0.5, dtype=np.float32)
+        self.assertAlmostEqual(asy._compute_rms(y), 0.5, places=5)
+
+    def test_rms_of_silence(self):
+        self.assertAlmostEqual(asy._compute_rms(np.zeros(1000)), 0.0, places=6)
+
+
+class TestComputeOffset(unittest.TestCase):
+    def test_detects_known_shift(self):
+        sr = 8000
+        rng = np.random.default_rng(42)
+        base = rng.standard_normal(sr * 2).astype(np.float32)  # 2 seconds of noise
+
+        shift = 400  # samples = 0.05 s
+        ref = base
+        # target is the reference delayed by `shift` samples (starts later)
+        target = np.concatenate([np.zeros(shift, dtype=np.float32), base])[: len(base)]
+
+        offset = asy.compute_offset(ref, target, sr=sr)
+        # Magnitude of the detected lag must match the injected shift.
+        self.assertAlmostEqual(abs(offset), shift / sr, places=2)
+
+    def test_zero_offset_for_identical(self):
+        sr = 8000
+        rng = np.random.default_rng(7)
+        y = rng.standard_normal(sr).astype(np.float32)
+        self.assertAlmostEqual(asy.compute_offset(y, y, sr=sr), 0.0, places=3)
+
+
+class TestSyncResult(unittest.TestCase):
+    def test_to_dict_and_save_roundtrip(self):
+        res = asy.SyncResult(
+            reference_clip="a.mov",
+            offsets={"a.mov": 0.0, "b.mov": 1.234},
+            rms_values={"a.mov": 0.1234567, "b.mov": 0.05},
+            sample_rate=44100,
+        )
+        d = res.to_dict()
+        self.assertEqual(d["reference_clip"], "a.mov")
+        self.assertEqual(d["offsets"]["b.mov"], 1.234)
+        # rms values are rounded to 6 places in to_dict
+        self.assertEqual(d["rms_values"]["a.mov"], 0.123457)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "sub" / "sync.json"
+            res.save(p)
+            self.assertTrue(p.exists())
+            loaded = json.loads(p.read_text())
+            self.assertEqual(loaded["reference_clip"], "a.mov")
+
+
+class TestSyncGuards(unittest.TestCase):
+    def test_sync_all_clips_requires_two(self):
+        with self.assertRaises(ValueError):
+            asy.sync_all_clips(["only_one.mov"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_config.py`
+
+```python
+"""Offline tests for config.py – paths and constants (no secrets required)."""
+import unittest
+from pathlib import Path
+
+import config
+
+
+class TestConfigPaths(unittest.TestCase):
+    def test_base_dir_is_repo_root(self):
+        # config.py lives at the repo root, so BASE_DIR must be that root.
+        self.assertEqual(config.BASE_DIR, Path(config.__file__).resolve().parent)
+
+    def test_derived_dirs_under_base(self):
+        for d in (config.INPUT_DIR, config.OUTPUT_DIR, config.LUT_DIR):
+            self.assertEqual(d.parent, config.BASE_DIR)
+
+    def test_lut_dir_created(self):
+        # config.py mkdir's the LUT dir on import.
+        self.assertTrue(config.LUT_DIR.exists())
+
+
+class TestConfigConstants(unittest.TestCase):
+    def test_available_luts(self):
+        self.assertEqual(
+            set(config.AVAILABLE_LUTS),
+            {"underground_dark", "vhs_analog", "neon_nights"},
+        )
+
+    def test_tag_bonus_scores(self):
+        self.assertAlmostEqual(config.TAG_BONUS_SCORES["CROWD_ENERGY"], 0.8)
+        self.assertAlmostEqual(config.TAG_BONUS_SCORES["UNUSABLE"], -1.0)
+
+    def test_fallback_order(self):
+        # DeepSeek is the primary provider in the auto-hierarchy.
+        self.assertEqual(
+            config.REGIE_PROVIDER_FALLBACK_ORDER,
+            ["deepseek", "claude", "gemini"],
+        )
+
+    def test_reel_dimensions_are_vertical(self):
+        self.assertEqual((config.REEL_WIDTH, config.REEL_HEIGHT), (1080, 1920))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_copywriter.py`
+
+```python
+"""Offline tests for copywriter.py – sanitizing + graceful degradation (Ollama mocked)."""
+import unittest
+import json
+import tempfile
+from pathlib import Path
+from unittest import mock
+
+import copywriter as cw
+
+
+class TestCleanFilename(unittest.TestCase):
+    def test_spaces_and_case(self):
+        self.assertEqual(cw._clean_filename("Dark Bassline Crowd"), "dark_bassline_crowd")
+
+    def test_strips_special_chars(self):
+        self.assertEqual(cw._clean_filename('"Dark!! Drop@2am"'), "dark_drop2am")
+
+    def test_truncates_to_40(self):
+        out = cw._clean_filename("a" * 80)
+        self.assertLessEqual(len(out), 40)
+
+    def test_empty_falls_back(self):
+        self.assertEqual(cw._clean_filename("!!!"), "unnamed_clip")
+
+    def test_strips_trailing_underscores(self):
+        self.assertEqual(cw._clean_filename("__hello__"), "hello")
+
+
+class TestGenerateFilename(unittest.TestCase):
+    def test_uses_model_output(self):
+        with mock.patch.object(cw, "_query_ollama", return_value="Dark Bassline Crowd"):
+            self.assertEqual(cw.generate_filename({"bpm": 140, "tags": ["techno"]}),
+                             "dark_bassline_crowd")
+
+    def test_fallback_when_offline(self):
+        # Ollama unavailable -> empty response -> metadata-based fallback.
+        with mock.patch.object(cw, "_query_ollama", return_value=""):
+            name = cw.generate_filename({"bpm": 145, "tags": ["CROWD_ENERGY"]})
+            self.assertEqual(name, "techno_crowd_energy_145bpm")
+
+
+class TestGenerateCaption(unittest.TestCase):
+    def test_uses_model_output(self):
+        with mock.patch.object(cw, "_query_ollama", return_value="raw techno energy #techno"):
+            cap = cw.generate_caption({"bpm": 140, "tags": ["techno"]})
+            self.assertEqual(cap, "raw techno energy #techno")
+
+    def test_fallback_when_offline(self):
+        with mock.patch.object(cw, "_query_ollama", return_value=""):
+            cap = cw.generate_caption({"bpm": 140, "tags": ["techno"]})
+            self.assertIn("#techno", cap)
+
+    def test_truncates_overlong(self):
+        long = "x" * 3000
+        with mock.patch.object(cw, "_query_ollama", return_value=long):
+            cap = cw.generate_caption({"bpm": 140, "tags": ["techno"]})
+            self.assertLessEqual(len(cap), 2200)
+
+
+class TestBatchAndSave(unittest.TestCase):
+    def test_batch_and_save(self):
+        clips = [{"bpm": 140, "tags": ["techno"]}, {"bpm": 150, "tags": ["house"]}]
+        with mock.patch.object(cw, "_query_ollama", return_value=""):
+            results = cw.batch_process(clips)
+        self.assertEqual(len(results), 2)
+        self.assertIsInstance(results[0], cw.CopyResult)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "caps.json"
+            cw.save_captions(results, p)
+            loaded = json.loads(p.read_text())
+            self.assertEqual(len(loaded), 2)
+            self.assertIn("filename", loaded[0])
+            self.assertIn("caption", loaded[0])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_kick_snare_detector.py`
+
+```python
+"""Offline tests for kick_snare_detector.py – dataclasses and beat grid logic."""
+import unittest
+import json
+import tempfile
+from pathlib import Path
+
+import kick_snare_detector as ksd
+
+
+class TestDataclasses(unittest.TestCase):
+    def test_hit_to_dict_rounds(self):
+        hit = ksd.PercussiveHit(time=1.23456, intensity=0.987654)
+        self.assertEqual(hit.to_dict(), {"time": 1.235, "intensity": 0.988})
+
+    def test_map_to_dict_counts(self):
+        pm = ksd.PercussionMap(
+            kicks=[ksd.PercussiveHit(0.5, 0.9), ksd.PercussiveHit(1.0, 0.8)],
+            snares=[ksd.PercussiveHit(0.75, 0.7)],
+            bpm=140.04,
+            duration=12.345,
+        )
+        d = pm.to_dict()
+        self.assertEqual(d["kick_count"], 2)
+        self.assertEqual(d["snare_count"], 1)
+        self.assertEqual(d["bpm"], 140.0)
+        self.assertEqual(d["duration"], 12.35)
+
+    def test_map_save_roundtrip(self):
+        pm = ksd.PercussionMap(kicks=[ksd.PercussiveHit(0.5, 0.9)], snares=[], bpm=128.0, duration=4.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "perc.json"
+            pm.save(p)
+            loaded = json.loads(p.read_text())
+            self.assertEqual(loaded["kick_count"], 1)
+
+
+class TestBeatGrid(unittest.TestCase):
+    def test_merges_and_sorts(self):
+        pm = ksd.PercussionMap(
+            kicks=[ksd.PercussiveHit(2.0, 0.9), ksd.PercussiveHit(0.0, 0.8)],
+            snares=[ksd.PercussiveHit(1.0, 0.7)],
+            bpm=140.0,
+            duration=3.0,
+        )
+        grid = ksd.get_beat_grid(pm)
+        times = [b["time"] for b in grid]
+        self.assertEqual(times, [0.0, 1.0, 2.0])
+        types = [b["type"] for b in grid]
+        self.assertEqual(types, ["kick", "snare", "kick"])
+
+    def test_empty_grid(self):
+        pm = ksd.PercussionMap(kicks=[], snares=[], bpm=0.0, duration=0.0)
+        self.assertEqual(ksd.get_beat_grid(pm), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_lut_generator.py`
+
+```python
+"""Offline tests for lut_generator.py – color math and .cube file structure."""
+import unittest
+import tempfile
+from pathlib import Path
+
+import lut_generator as lg
+
+
+class TestColorMath(unittest.TestCase):
+    def test_clamp_bounds(self):
+        self.assertEqual(lg._clamp(-0.5), 0.0)
+        self.assertEqual(lg._clamp(1.5), 1.0)
+        self.assertEqual(lg._clamp(0.42), 0.42)
+
+    def test_srgb_linear_roundtrip(self):
+        for c in (0.0, 0.04, 0.2, 0.5, 0.8, 1.0):
+            back = lg._linear_to_srgb(lg._srgb_to_linear(c))
+            self.assertAlmostEqual(back, c, places=5)
+
+    def test_transforms_return_valid_rgb(self):
+        transforms = (
+            lg._transform_underground_dark,
+            lg._transform_vhs_analog,
+            lg._transform_neon_nights,
+        )
+        for fn in transforms:
+            for rgb in [(0.0, 0.0, 0.0), (0.5, 0.5, 0.5), (1.0, 1.0, 1.0), (0.2, 0.6, 0.9)]:
+                out = fn(*rgb)
+                self.assertEqual(len(out), 3)
+                for v in out:
+                    self.assertGreaterEqual(v, 0.0)
+                    self.assertLessEqual(v, 1.0)
+
+
+class TestCubeFile(unittest.TestCase):
+    def test_generate_cube_file_structure(self):
+        # Use a tiny size for speed; structure must still be valid.
+        size = 3
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "test.cube"
+            lg._generate_cube_file(lg._transform_vhs_analog, out, "test", size=size)
+            self.assertTrue(out.exists())
+
+            lines = out.read_text().splitlines()
+            self.assertIn(f"LUT_3D_SIZE {size}", lines)
+            self.assertIn('TITLE "test"', lines)
+
+            data_lines = [
+                ln for ln in lines
+                if ln and ln[0].isdigit() and len(ln.split()) == 3
+            ]
+            self.assertEqual(len(data_lines), size ** 3)
+
+            # Every data triple must be parseable floats in [0,1].
+            r, g, b = (float(x) for x in data_lines[0].split())
+            for v in (r, g, b):
+                self.assertGreaterEqual(v, 0.0)
+                self.assertLessEqual(v, 1.0)
+
+    def test_get_lut_path_resolves_and_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "underground_dark.cube").write_text("TITLE \"x\"\n")
+            self.assertEqual(
+                lg.get_lut_path("underground_dark", lut_dir=d),
+                d / "underground_dark.cube",
+            )
+            with self.assertRaises(FileNotFoundError):
+                lg.get_lut_path("does_not_exist", lut_dir=d)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_regie_engine.py`
+
+```python
+"""Offline tests for regie_engine.py – parsing, verification, plan model, providers.
+
+No network: only the JSON parser, verifier, dataclasses and provider availability
+logic are exercised. The anthropic/google/openai SDKs are never imported because
+their .call() methods are not invoked.
+"""
+import unittest
+import json
+import tempfile
+from pathlib import Path
+from unittest import mock
+
+import regie_engine as re_eng
+
+
+# --------------------------------------------------------------------------- #
+# Data model
+# --------------------------------------------------------------------------- #
+class TestEditClip(unittest.TestCase):
+    def test_to_dict_computes_duration_and_rounds(self):
+        clip = re_eng.EditClip(
+            video="a.mov", start=12.34567, end=18.78912,
+            transition="hard_cut_on_beat", reason="drop",
+        )
+        d = clip.to_dict()
+        self.assertEqual(d["start"], 12.346)
+        self.assertEqual(d["end"], 18.789)
+        self.assertEqual(d["duration"], 6.443)
+        self.assertEqual(d["crop"], "9:16")
+
+
+class TestEditPlan(unittest.TestCase):
+    def _plan(self):
+        return re_eng.EditPlan(
+            clips=[
+                re_eng.EditClip("a.mov", 0.0, 4.0, "cut", "r1"),
+                re_eng.EditClip("b.mov", 4.0, 9.0, "cut", "r2", slow_mo=True, slow_mo_factor=2.0),
+            ],
+            narrative="arc",
+            total_duration=9.0,
+        )
+
+    def test_to_dict_clip_count(self):
+        d = self._plan().to_dict()
+        self.assertEqual(d["clip_count"], 2)
+        self.assertEqual(len(d["clips"]), 2)
+
+    def test_save_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "plan.json"
+            self._plan().save(p)
+            loaded = json.loads(p.read_text())
+            self.assertEqual(loaded["clip_count"], 2)
+
+    def test_to_ffmpeg_commands(self):
+        cmds = self._plan().to_ffmpeg_commands(output_dir=Path("output"))
+        self.assertEqual(len(cmds), 2)
+        # 9:16 crop + lut applied
+        self.assertIn("crop=ih*9/16:ih,scale=1080:1920", cmds[0])
+        self.assertIn("lut3d=luts/underground_dark.cube", cmds[0])
+        # slow-mo clip gets setpts prepended
+        self.assertIn("setpts=PTS*2.0", cmds[1])
+
+
+# --------------------------------------------------------------------------- #
+# JSON parsing (the core robustness feature)
+# --------------------------------------------------------------------------- #
+class TestParseEditPlan(unittest.TestCase):
+    VALID = {
+        "clips": [
+            {"video": "a.mov", "start": 1.0, "end": 5.0,
+             "transition": "cut", "reason": "intro"},
+        ],
+        "narrative": "story",
+    }
+
+    def test_plain_json(self):
+        plan = re_eng._parse_edit_plan(json.dumps(self.VALID), "claude", "m")
+        self.assertEqual(len(plan.clips), 1)
+        self.assertEqual(plan.clips[0].video, "a.mov")
+        self.assertEqual(plan.narrative, "story")
+        self.assertEqual(plan.provider_used, "claude")
+
+    def test_markdown_fenced(self):
+        raw = "```json\n" + json.dumps(self.VALID) + "\n```"
+        plan = re_eng._parse_edit_plan(raw, "gemini", "m")
+        self.assertEqual(len(plan.clips), 1)
+
+    def test_text_wrapped_json(self):
+        raw = "Here is your plan:\n" + json.dumps(self.VALID) + "\nHope it helps!"
+        plan = re_eng._parse_edit_plan(raw, "deepseek", "m")
+        self.assertEqual(len(plan.clips), 1)
+
+    def test_defaults_applied(self):
+        minimal = {"clips": [{"video": "x.mov", "start": 0, "end": 3}], "narrative": ""}
+        plan = re_eng._parse_edit_plan(json.dumps(minimal), "claude", "m")
+        c = plan.clips[0]
+        self.assertEqual(c.transition, "cut")
+        self.assertEqual(c.crop, "9:16")
+        self.assertEqual(c.lut, "underground_dark")
+
+    def test_invalid_json_raises(self):
+        with self.assertRaises(ValueError):
+            re_eng._parse_edit_plan("not json at all", "claude", "m")
+
+
+# --------------------------------------------------------------------------- #
+# Verification / self-healing
+# --------------------------------------------------------------------------- #
+class TestVerifyEditPlan(unittest.TestCase):
+    def test_drops_zero_and_negative_duration(self):
+        plan = re_eng.EditPlan(
+            clips=[
+                re_eng.EditClip("a.mov", 5.0, 5.0, "cut", "zero"),
+                re_eng.EditClip("b.mov", 5.0, 3.0, "cut", "negative"),
+                re_eng.EditClip("c.mov", 0.0, 4.0, "cut", "ok"),
+            ],
+            narrative="", total_duration=0.0,
+        )
+        fixed = re_eng.verify_edit_plan(plan, {}, target_duration=4.0)
+        self.assertEqual(len(fixed.clips), 1)
+        self.assertEqual(fixed.clips[0].video, "c.mov")
+        self.assertAlmostEqual(fixed.total_duration, 4.0)
+
+    def test_trims_overlong_clip(self):
+        plan = re_eng.EditPlan(
+            clips=[re_eng.EditClip("a.mov", 0.0, 30.0, "cut", "too long")],
+            narrative="", total_duration=30.0,
+        )
+        fixed = re_eng.verify_edit_plan(plan, {}, target_duration=15.0)
+        self.assertEqual(fixed.clips[0].duration, 15.0)
+
+    def test_empty_plan_is_safe(self):
+        plan = re_eng.EditPlan(clips=[], narrative="", total_duration=0.0)
+        self.assertEqual(re_eng.verify_edit_plan(plan, {}).clips, [])
+
+
+# --------------------------------------------------------------------------- #
+# Seamless loop helper
+# --------------------------------------------------------------------------- #
+class TestSeamlessLoop(unittest.TestCase):
+    def test_swaps_halves(self):
+        plan = re_eng.create_seamless_loop_plan("v.mov", start=10.0, end=20.0)
+        self.assertEqual(len(plan.clips), 2)
+        # Second half plays first
+        self.assertEqual((plan.clips[0].start, plan.clips[0].end), (15.0, 20.0))
+        self.assertEqual((plan.clips[1].start, plan.clips[1].end), (10.0, 15.0))
+        self.assertEqual(plan.style, "seamless_loop")
+
+
+# --------------------------------------------------------------------------- #
+# Provider resolution (no API keys involved)
+# --------------------------------------------------------------------------- #
+class TestProviders(unittest.TestCase):
+    def test_get_provider_unknown_raises(self):
+        with self.assertRaises(ValueError):
+            re_eng.get_provider("does_not_exist")
+
+    def test_get_provider_returns_right_class(self):
+        self.assertIsInstance(re_eng.get_provider("claude"), re_eng.ClaudeProvider)
+        self.assertIsInstance(re_eng.get_provider("gemini"), re_eng.GeminiProvider)
+        self.assertIsInstance(re_eng.get_provider("deepseek"), re_eng.DeepSeekProvider)
+
+    def test_availability_requires_key(self):
+        self.assertFalse(re_eng.ClaudeProvider(api_key="").is_available())
+
+    def test_availability_requires_sdk(self):
+        # Key present but SDK not importable -> not available (graceful degradation).
+        with mock.patch.object(re_eng, "_sdk_installed", return_value=False):
+            self.assertFalse(re_eng.DeepSeekProvider(api_key="secret").is_available())
+        with mock.patch.object(re_eng, "_sdk_installed", return_value=True):
+            self.assertTrue(re_eng.DeepSeekProvider(api_key="secret").is_available())
+
+    def test_resolve_named_provider_without_key_raises(self):
+        with mock.patch.object(re_eng.ClaudeProvider, "is_available", return_value=False):
+            with self.assertRaises(ValueError):
+                re_eng.resolve_provider("claude")
+
+    def test_resolve_auto_without_any_key_raises(self):
+        with mock.patch.object(re_eng.ClaudeProvider, "is_available", return_value=False), \
+             mock.patch.object(re_eng.GeminiProvider, "is_available", return_value=False), \
+             mock.patch.object(re_eng.DeepSeekProvider, "is_available", return_value=False):
+            with self.assertRaises(ValueError):
+                re_eng.resolve_provider("auto")
+
+    def test_list_available_providers_structure(self):
+        providers = re_eng.list_available_providers()
+        self.assertEqual({p["name"] for p in providers}, {"claude", "gemini", "deepseek"})
+        for p in providers:
+            self.assertIn("model", p)
+            self.assertIn("available", p)
+
+
+# --------------------------------------------------------------------------- #
+# POV story preset + anti-advice hook
+# --------------------------------------------------------------------------- #
+class TestPovStoryPreset(unittest.TestCase):
+    def test_prompt_includes_pov_section_only_for_pov_story(self):
+        pov = re_eng._build_system_prompt("pov_story", 45)
+        self.assertIn("ANTI-ADVICE HOOK", pov)
+        self.assertIn("hook_text", pov)
+        for phase in ("before", "during", "after"):
+            self.assertIn(phase, pov)
+        # other presets must NOT get the POV story block
+        hl = re_eng._build_system_prompt("highlight", 60)
+        self.assertNotIn("ANTI-ADVICE HOOK", hl)
+
+    def test_pov_story_is_a_valid_cli_preset(self):
+        # the preset name appears in the preset definitions of every prompt
+        self.assertIn("pov_story", re_eng._build_system_prompt("highlight", 60))
+
+    def test_parse_reads_hook_text_and_phase(self):
+        raw = {
+            "clips": [
+                {"video": "arrive.mov", "start": 0, "end": 4, "phase": "before"},
+                {"video": "drop.mov", "start": 10, "end": 14, "phase": "during"},
+                {"video": "pack.mov", "start": 20, "end": 24, "phase": "after"},
+            ],
+            "narrative": "a day in the life",
+            "hook_text": "stop practicing your transitions.",
+        }
+        plan = re_eng._parse_edit_plan(json.dumps(raw), "claude", "m")
+        self.assertEqual(plan.hook_text, "stop practicing your transitions.")
+        self.assertEqual([c.phase for c in plan.clips], ["before", "during", "after"])
+        # hook_text + phase survive serialization
+        d = plan.to_dict()
+        self.assertEqual(d["hook_text"], "stop practicing your transitions.")
+        self.assertEqual(d["clips"][0]["phase"], "before")
+
+    def test_hook_text_defaults_empty_for_non_pov(self):
+        minimal = {"clips": [{"video": "x.mov", "start": 0, "end": 3}], "narrative": ""}
+        plan = re_eng._parse_edit_plan(json.dumps(minimal), "claude", "m")
+        self.assertEqual(plan.hook_text, "")
+        self.assertEqual(plan.clips[0].phase, "")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+### `tests/test_vision_engine.py`
+
+```python
+"""Offline tests for vision_engine.py – taxonomy, scoring, graceful degradation.
+
+No Ollama and no real video decoding: the model call is faked by injecting a
+stub `ollama` module, and availability is monkeypatched.
+"""
+import sys
+import json
+import unittest
+from unittest import mock
+
+import vision_engine as ve
+
+
+class TestTaxonomy(unittest.TestCase):
+    def test_new_story_tags_present(self):
+        self.assertIn("ARRIVAL", ve.VALID_TAGS)
+        self.assertIn("PACKDOWN", ve.VALID_TAGS)
+
+    def test_every_valid_tag_has_a_score(self):
+        for tag in ve.VALID_TAGS:
+            self.assertIn(tag, ve.TAG_BONUS_SCORES, f"missing score for {tag}")
+
+    def test_story_tags_have_zero_bonus(self):
+        self.assertEqual(ve.TAG_BONUS_SCORES["ARRIVAL"], 0.0)
+        self.assertEqual(ve.TAG_BONUS_SCORES["PACKDOWN"], 0.0)
+
+    def test_system_prompt_documents_new_tags(self):
+        self.assertIn("ARRIVAL", ve.SYSTEM_PROMPT)
+        self.assertIn("PACKDOWN", ve.SYSTEM_PROMPT)
+
+
+class TestFilteringAndScoring(unittest.TestCase):
+    def _tags(self):
+        return [
+            ve.FrameTag(0.0, "ARRIVAL", 0.9, "load-in"),
+            ve.FrameTag(5.0, "CROWD_ENERGY", 0.8, "drop"),
+            ve.FrameTag(9.0, "PACKDOWN", 0.7, "empty floor"),
+            ve.FrameTag(12.0, "UNUSABLE", 0.9, "blurry"),
+            ve.FrameTag(15.0, "DJ_SETUP", 0.1, "low conf"),
+        ]
+
+    def test_filter_keeps_story_tags_drops_unusable_and_lowconf(self):
+        kept = {t.tag for t in ve.filter_unusable(self._tags(), min_confidence=0.3)}
+        self.assertEqual(kept, {"ARRIVAL", "CROWD_ENERGY", "PACKDOWN"})
+
+    def test_get_tag_scores(self):
+        scores = ve.get_tag_scores(self._tags())
+        # story tags contribute nothing; crowd energy contributes 0.8 * 0.8
+        self.assertAlmostEqual(scores["0.0"], 0.0)
+        self.assertAlmostEqual(scores["9.0"], 0.0)
+        self.assertAlmostEqual(scores["5.0"], 0.64)
+
+
+class TestGracefulDegradation(unittest.TestCase):
+    def test_returns_empty_when_ollama_down(self):
+        with mock.patch.object(ve, "_ollama_available", return_value=False):
+            self.assertEqual(ve.tag_video_frames("whatever.mov"), [])
+
+
+class TestBatchTagValidation(unittest.TestCase):
+    def test_new_tag_kept_unknown_coerced(self):
+        response = [
+            {"time": 0.0, "tag": "ARRIVAL", "confidence": 0.9, "description": "load-in"},
+            {"time": 5.0, "tag": "ROBOT_DANCE", "confidence": 0.9, "description": "bogus tag"},
+        ]
+        fake_ollama = mock.MagicMock()
+        fake_ollama.chat.return_value = {"message": {"content": json.dumps(response)}}
+
+        with mock.patch.dict(sys.modules, {"ollama": fake_ollama}):
+            tags = ve._analyze_frames_batch([(0.0, b"x"), (5.0, b"y")])
+
+        self.assertEqual(tags[0].tag, "ARRIVAL")        # new valid tag preserved
+        self.assertEqual(tags[1].tag, "UNUSABLE")        # unknown tag coerced
+
+    def test_concatenated_arrays_are_merged(self):
+        # gemma4:e2b often returns one JSON array per image, concatenated.
+        raw = (
+            '[{"time": 0.0, "tag": "DJ_SETUP", "confidence": 0.95, "description": "a"}]\n'
+            '[{"time": 5.0, "tag": "CROWD_ENERGY", "confidence": 0.9, "description": "b"}]'
+        )
+        fake_ollama = mock.MagicMock()
+        fake_ollama.chat.return_value = {"message": {"content": raw}}
+        with mock.patch.dict(sys.modules, {"ollama": fake_ollama}):
+            tags = ve._analyze_frames_batch([(0.0, b"x"), (5.0, b"y")])
+        self.assertEqual([t.tag for t in tags], ["DJ_SETUP", "CROWD_ENERGY"])
+        self.assertEqual([t.time for t in tags], [0.0, 5.0])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+```
+
+## 4. Web-Frontend (static/)
+
+### `static/css/style.css`
+
+```css
+/* ════════════════════════════════════════════════════════════
+   UNREEL  ·  OBSIDIAN EDITION  ·  BRUTALIST TECHNO UI
+   "The music doesn't lie. Neither does the interface."
+   ════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,900&display=swap');
+
+/* ─────────────────────────────────────────────────────────────
+   DESIGN TOKENS  (v3.1 – DAY SHO proportion update)
+   ───────────────────────────────────────────────────────────── */
+:root {
+    /* Blacks */
+    --void:         #000000;
+    --bg-deep:      #050505;
+    --bg-surface:   #090909;
+    --bg-module:    #0e0e0e;
+    --bg-raised:    #141414;
+
+    /* Borders */
+    --border-dim:   #181818;
+    --border-stark: #252525;
+    --border-mid:   #333333;
+    --border-hot:   #ffffff;
+
+    /* Text */
+    --text-ghost:   #2e2e2e;
+    --muted-grey:   #484848;
+    --dim-text:     #6a6a6a;
+    --sub-text:     #909090;
+    --pure-white:   #ffffff;
+
+    /* Neon Accents */
+    --electric-cyan: #00f2ff;
+    --acid-green:    #ccff00;
+    --neon-red:      #ff2200;
+    --amber:         #ff8800;
+    --neon-purple:   #cc00ff;
+    --neon-cyan:     #00f2ff; /* alias */
+
+    /* Glow versions */
+    --glow-cyan:  0 0 12px rgba(0, 242, 255, 0.6);
+    --glow-green: 0 0 12px rgba(204, 255, 0, 0.6);
+    --glow-red:   0 0 12px rgba(255, 34, 0, 0.5);
+
+    /* Hard shadows (brutalist - no blur) */
+    --shadow-cyan:  4px 4px 0px var(--electric-cyan);
+    --shadow-green: 4px 4px 0px var(--acid-green);
+    --shadow-white: 4px 4px 0px var(--pure-white);
+    --shadow-sm:    2px 2px 0px var(--border-mid);
+
+    /* Spacing */
+    --spacing-xs:   4px;
+    --spacing-sm:   8px;
+    --spacing-md:   16px;
+    --spacing-lg:   24px;
+    --spacing-xl:   40px;
+    --gap-sm:       8px;
+    --gap-md:       16px;
+    --gap-lg:       24px;
+
+    /* Typography */
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+    /* Sidebar */
+    --sidebar-w: 360px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   RESET  +  BASE
+   ───────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border-radius: 0 !important; /* NO softness. ever. */
+}
+
+html { scroll-behavior: auto; }
+
+body {
+    background-color: var(--bg-deep);
+    color: var(--pure-white);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.5;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    min-height: 100vh;
+    overflow-x: hidden;
+    /* Subtle noise texture via SVG data-uri */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+
+/* CRT scanlines – layered on everything */
+body::after {
+    content: "";
+    display: block;
+    position: fixed;
+    inset: 0;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 0, 0, 0.08) 2px,
+            rgba(0, 0, 0, 0.08) 4px
+        );
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 1;
+}
+
+/* Moving hot-wire scanline */
+body::before {
+    content: "";
+    position: fixed;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(0, 242, 255, 0.08) 30%,
+        rgba(0, 242, 255, 0.18) 50%,
+        rgba(0, 242, 255, 0.08) 70%,
+        transparent 100%
+    );
+    z-index: 9999;
+    animation: hotscan 8s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes hotscan {
+    0%   { top: -4px; opacity: 0; }
+    2%   { opacity: 1; }
+    98%  { opacity: 1; }
+    100% { top: 100vh; opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SCROLLBAR
+   ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar            { width: 3px; height: 3px; }
+::-webkit-scrollbar-track      { background: var(--void); }
+::-webkit-scrollbar-thumb      { background: var(--border-mid); }
+::-webkit-scrollbar-thumb:hover{ background: var(--electric-cyan); }
+
+/* ─────────────────────────────────────────────────────────────
+   LAYOUT  SHELL
+   ───────────────────────────────────────────────────────────── */
+.app-container {
+    position: relative;
+    z-index: 1;
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: var(--gap-lg);
+    padding-bottom: 60px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HEADER  (DAY SHO proportions)
+   ───────────────────────────────────────────────────────────── */
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 36px 0 28px;
+    margin-bottom: 0; /* ticker takes over the gap */
+    border-bottom: 4px solid var(--pure-white);
+    position: relative;
+}
+
+/* Thin red stripe on far left — the "war paint" */
+.app-header::before {
+    content: "";
+    position: absolute;
+    left: -24px;
+    top: 0; bottom: 0;
+    width: 3px;
+    background: var(--neon-red);
+}
+
+/* ── Logo / Title ── */
+.app-logo {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.app-logo h1 {
+    /* Wide tracking = DAY SHO stamp aesthetic */
+    font-size: clamp(3.2rem, 7vw, 6.5rem);
+    font-weight: 900;
+    font-style: normal;          /* upright – no italic, more authoritative */
+    line-height: 0.9;
+    letter-spacing: 0.18em;      /* "U N R E E L" wide-spaced */
+    position: relative;
+    display: inline-block;
+    text-indent: 0.18em;         /* compensate for leading letter-spacing */
+}
+
+.text-glitch {
+    color: var(--pure-white);
+    position: relative;
+}
+
+.text-glitch::before,
+.text-glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    background: var(--bg-deep);
+    overflow: hidden;
+}
+
+.text-glitch::before {
+    left: 3px;
+    top: -1px;
+    text-shadow: -3px 0 var(--electric-cyan);
+    clip-path: polygon(0 15%, 100% 15%, 100% 35%, 0 35%);
+    animation: g1 7s steps(1) infinite;
+}
+
+.text-glitch::after {
+    left: -3px;
+    top: 1px;
+    text-shadow: 3px 0 var(--acid-green);
+    clip-path: polygon(0 60%, 100% 60%, 100% 75%, 0 75%);
+    animation: g2 7s steps(1) infinite 0.6s;
+}
+
+@keyframes g1 {
+    0%,91%,100% { clip-path: polygon(0 0,0 0,0 0,0 0); opacity: 0; }
+    92%          { clip-path: polygon(0 15%,100% 15%,100% 35%,0 35%); opacity: 1; }
+    94%          { clip-path: polygon(0 40%,100% 40%,100% 55%,0 55%); }
+    97%          { clip-path: polygon(0 70%,100% 70%,100% 80%,0 80%); }
+}
+
+@keyframes g2 {
+    0%,87%,100% { clip-path: polygon(0 0,0 0,0 0,0 0); opacity: 0; }
+    88%          { clip-path: polygon(0 60%,100% 60%,100% 75%,0 75%); opacity: 1; }
+    91%          { clip-path: polygon(0 20%,100% 20%,100% 30%,0 30%); }
+    94%          { clip-path: polygon(0 80%,100% 80%,100% 90%,0 80%); }
+}
+
+/* Subtitle line below the title — "// NO. MERCY. //" energy */
+.subtitle {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    letter-spacing: 0.25em;
+    margin-top: 6px;
+}
+
+/* ── Header Stats (right side) ── */
+.header-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.stat-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    background: var(--void);
+    border: 1px solid var(--border-stark);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--dim-text);
+    letter-spacing: 0.12em;
+    position: relative;
+    min-width: 160px;
+    justify-content: space-between;
+}
+
+.stat-badge::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--acid-green);
+}
+
+.stat-badge .number {
+    font-weight: 900;
+    font-size: 15px;
+    color: var(--electric-cyan);
+    letter-spacing: -0.02em;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   TICKER BAND  –  // UNREEL // HARD TECHNO // NO MERCY //
+   ───────────────────────────────────────────────────────────── */
+.ticker-bar {
+    overflow: hidden;
+    border-bottom: 1px solid var(--border-stark);
+    background: var(--void);
+    height: 32px;
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--gap-lg);
+    position: relative;
+    /* thin acid-green strip at top */
+    border-top: 2px solid var(--acid-green);
+}
+
+.ticker-track {
+    display: flex;
+    white-space: nowrap;
+    animation: ticker-scroll 28s linear infinite;
+    will-change: transform;
+}
+
+.ticker-track span {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    color: var(--muted-grey);
+    padding-right: 80px;
+    flex-shrink: 0;
+}
+
+/* highlight the slashes */
+.ticker-track em {
+    font-style: normal;
+    color: var(--border-mid);
+}
+
+@keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+}
+
+/* pause on hover */
+.ticker-bar:hover .ticker-track { animation-play-state: paused; }
+
+
+/* ─────────────────────────────────────────────────────────────
+   LIBRARY VIEW  –  ACTION BAR
+   ───────────────────────────────────────────────────────────── */
+#libraryView > div:first-child {
+    margin-bottom: var(--gap-lg);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-stark);
+    padding: var(--spacing-md);
+    position: relative;
+}
+
+/* Section label above the button bar */
+#libraryView > div:first-child::before {
+    content: "// GLOBAL EXPORT ENGINE";
+    display: block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--muted-grey);
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   BUTTONS  (DAY SHO – clean, wide, confident)
+   ───────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    /* Generous padding — buttons should feel like declarations, not UI clutter */
+    padding: 13px 28px;
+    background: var(--void);
+    color: var(--pure-white);
+    border: 1px solid var(--border-mid);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.18em;      /* wide tracking like "B O O K  D A Y  S H O" */
+    text-transform: uppercase;
+    cursor: pointer;
+    text-decoration: none;
+    position: relative;
+    transition: transform 0.06s, box-shadow 0.06s, color 0.06s, background 0.06s;
+    white-space: nowrap;
+    /* Emojis / icons in buttons should be smaller */
+    line-height: 1;
+}
+
+/* hard-offset hover — keeps the brutalist depth */
+.btn:hover {
+    transform: translate(-3px, -3px);
+    box-shadow: 3px 3px 0 var(--border-mid);
+    color: var(--pure-white);
+}
+
+.btn:active {
+    transform: translate(0, 0);
+    box-shadow: none;
+}
+
+.btn:focus-visible {
+    outline: 1px solid var(--electric-cyan);
+    outline-offset: 3px;
+}
+
+/* PRIMARY – "BOOK DAY SHO" style: white fill, jet black text, max confidence */
+.btn-primary {
+    background: var(--pure-white);
+    color: var(--void);
+    border-color: var(--pure-white);
+}
+.btn-primary:hover {
+    box-shadow: 3px 3px 0 var(--dim-text);
+    color: var(--void);
+}
+
+/* ACCENT – acid green fill */
+.btn-accent {
+    background: var(--acid-green);
+    color: var(--void);
+    border-color: var(--acid-green);
+}
+.btn-accent:hover {
+    box-shadow: 3px 3px 0 rgba(204,255,0,0.4);
+    color: var(--void);
+}
+
+/* SECONDARY – ghost outline, muted text, only reveals on hover */
+.btn-secondary {
+    background: var(--void);
+    color: var(--dim-text);
+    border-color: var(--border-stark);
+    font-weight: 700;
+}
+.btn-secondary:hover {
+    color: var(--pure-white);
+    border-color: var(--dim-text);
+    box-shadow: 3px 3px 0 var(--border-stark);
+}
+
+/* DANGER – neon red, restrained by default, flares on hover */
+.btn-danger {
+    background: var(--void);
+    color: var(--neon-red);
+    border-color: rgba(255,34,0,0.4);
+    font-weight: 900;
+}
+.btn-danger:hover {
+    background: var(--neon-red);
+    color: var(--void);
+    border-color: var(--neon-red);
+    box-shadow: 3px 3px 0 rgba(255,34,0,0.35);
+}
+
+/* BLOCK – full width */
+.btn-block { width: 100%; }
+
+/* ─────────────────────────────────────────────────────────────
+   VIDEO GRID
+   ───────────────────────────────────────────────────────────── */
+.video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1px;
+    background: var(--border-dim);
+    border: 1px solid var(--border-dim);
+}
+
+/* Single card */
+.video-card {
+    background: var(--bg-module);
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.06s, box-shadow 0.06s;
+}
+
+.video-card:hover {
+    z-index: 2;
+    transform: translate(-2px, -2px);
+    box-shadow: var(--shadow-cyan);
+}
+
+/* READY badge */
+.video-card.analyzed::after {
+    content: "RDY";
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--acid-green);
+    color: var(--void);
+    padding: 2px 6px;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    z-index: 4;
+}
+
+/* Featured / used */
+.video-card.featured {
+    border: 1px solid var(--electric-cyan);
+}
+
+/* Thumbnail */
+.video-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--void);
+    overflow: hidden;
+    position: relative;
+}
+
+.video-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: grayscale(0.4) contrast(1.15) brightness(0.85);
+    display: block;
+}
+
+.placeholder-icon {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    opacity: 0.2;
+}
+
+/* Play overlay */
+.play-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.video-card:hover .play-overlay { opacity: 1; }
+
+.play-btn {
+    width: 44px;
+    height: 44px;
+    background: var(--pure-white);
+    color: var(--void);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 900;
+    /* offset border = "depth" */
+    box-shadow: 3px 3px 0 var(--electric-cyan);
+}
+
+/* Usage badge */
+.usage-badge {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,242,255,0.08);
+    border-top: 1px solid var(--electric-cyan);
+    color: var(--electric-cyan);
+    padding: 3px 8px;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+}
+
+/* Card info row */
+.video-info {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-dim);
+    background: var(--bg-module);
+}
+
+.video-name {
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--pure-white);
+    letter-spacing: 0.04em;
+}
+
+.video-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: var(--muted-grey);
+    margin-top: 4px;
+    letter-spacing: 0.06em;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   EMPTY STATE
+   ───────────────────────────────────────────────────────────── */
+.empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--text-ghost);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    border: 1px dashed var(--border-dim);
+    width: 100%;
+    min-height: 120px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ANALYSIS  (STUDIO)  VIEW
+   ───────────────────────────────────────────────────────────── */
+.analysis-view           { display: none; }
+.analysis-view.active    { display: block; }
+
+.analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    border-bottom: 2px solid var(--pure-white);
+}
+
+.analysis-title {
+    font-size: 1rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: var(--pure-white);
+    flex: 1;
+    text-align: center;
+    padding: 0 var(--spacing-md);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Back button */
+.back-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    background: var(--void);
+    color: var(--dim-text);
+    border: 1px solid var(--border-stark);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.back-btn:hover {
+    color: var(--pure-white);
+    border-color: var(--pure-white);
+    transform: translate(-2px, -2px);
+    box-shadow: 2px 2px 0 var(--border-mid);
+}
+
+/* ── Two-column layout ── */
+.analysis-layout {
+    display: grid;
+    grid-template-columns: 1fr var(--sidebar-w);
+    gap: var(--gap-lg);
+    align-items: start;
+}
+
+/* ── Video Player ── */
+.player-section { display: flex; flex-direction: column; gap: var(--gap-md); }
+
+.video-player-container {
+    border: 2px solid var(--pure-white);
+    background: var(--void);
+    position: relative;
+}
+
+/* corner marks – brutalist detail */
+.video-player-container::before,
+.video-player-container::after {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    z-index: 2;
+    pointer-events: none;
+}
+.video-player-container::before {
+    top: -2px; left: -2px;
+    border-top: 3px solid var(--electric-cyan);
+    border-left: 3px solid var(--electric-cyan);
+}
+.video-player-container::after {
+    bottom: -2px; right: -2px;
+    border-bottom: 3px solid var(--acid-green);
+    border-right: 3px solid var(--acid-green);
+}
+
+.video-player-container video {
+    width: 100%;
+    max-height: 58vh;
+    object-fit: contain;
+    display: block;
+    filter: contrast(1.08) brightness(0.92);
+}
+
+/* ── Stats Row ── */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border-dim);
+    border: 1px solid var(--border-dim);
+}
+
+.stat-card {
+    background: var(--bg-module);
+    padding: 14px 12px;
+    position: relative;
+}
+
+/* top accent line per card */
+.stat-card:nth-child(1)::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--electric-cyan); }
+.stat-card:nth-child(2)::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--acid-green); }
+.stat-card:nth-child(3)::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--pure-white); }
+.stat-card:nth-child(4)::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--neon-red); }
+.stat-card:nth-child(5)::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:var(--amber); }
+
+.stat-card .stat-value {
+    font-size: 1.6rem;
+    font-weight: 900;
+    color: var(--pure-white);
+    line-height: 1;
+    letter-spacing: -1px;
+}
+
+.stat-card .stat-label {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    margin-top: 4px;
+    letter-spacing: 0.12em;
+}
+
+/* ── Timeline ── */
+.timeline-container {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-stark);
+    padding: var(--spacing-md);
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-dim);
+}
+
+.timeline-header h3 {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    color: var(--dim-text);
+}
+
+.timeline-legend {
+    display: flex;
+    gap: 14px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    letter-spacing: 0.08em;
+}
+
+.legend-dot {
+    width: 8px;
+    height: 2px;
+}
+.legend-dot.energy    { background: var(--electric-cyan); }
+.legend-dot.bass      { background: #ff00e5; }
+.legend-dot.motion    { background: var(--acid-green); }
+.legend-dot.highlight { background: rgba(255,255,255,0.15); border: 1px solid var(--border-mid); height: 8px; }
+
+.timeline-canvas-wrapper {
+    position: relative;
+    height: 110px;
+    background: var(--void);
+    border: 1px solid var(--border-dim);
+    overflow: hidden;
+}
+
+#timelineCanvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+}
+
+.timeline-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--electric-cyan);
+    box-shadow: 0 0 8px var(--electric-cyan), 0 0 20px rgba(0,242,255,0.3);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.timeline-time-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    margin-top: 4px;
+    letter-spacing: 0.08em;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CLIPS  PANEL
+   ───────────────────────────────────────────────────────────── */
+.clips-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--border-dim);
+    border: 1px solid var(--border-dim);
+}
+
+.panel-section {
+    background: var(--bg-surface);
+    padding: var(--spacing-md);
+}
+
+.panel-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-dim);
+}
+
+.panel-section-header h3 {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    color: var(--dim-text);
+}
+
+/* Clip count badge */
+.clip-count-badge {
+    background: var(--electric-cyan);
+    color: var(--void);
+    padding: 2px 8px;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    min-width: 24px;
+    text-align: center;
+}
+
+/* ── Preset Filter Tabs ── */
+.preset-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border-dim);
+    margin-bottom: var(--spacing-md);
+}
+
+.preset-tab {
+    padding: 9px 6px;
+    background: var(--bg-module);
+    color: var(--muted-grey);
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-align: center;
+    transition: color 0.08s, background 0.08s;
+}
+
+.preset-tab:hover { color: var(--pure-white); background: var(--bg-raised); }
+
+.preset-tab.active {
+    background: var(--pure-white);
+    color: var(--void);
+    font-weight: 900;
+}
+
+/* ── Clip Cards ── */
+.clips-list {
+    max-height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--border-dim);
+}
+
+.clip-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--bg-module);
+    border: none;
+    border-left: 2px solid var(--border-dim);
+    padding: 10px 12px;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.06s, background 0.06s;
+}
+
+.clip-card:hover {
+    background: var(--bg-raised);
+    border-left-color: var(--pure-white);
+}
+
+.clip-card.selected {
+    background: #0c1012;
+    border-left: 2px solid var(--electric-cyan);
+    box-shadow: inset 0 0 0 1px rgba(0,242,255,0.12);
+}
+
+/* Tier badge – absolute top-right */
+.clip-tier-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 2px 7px;
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    line-height: 1.6;
+}
+
+.tier-s { background: var(--electric-cyan); color: var(--void); }
+.tier-a { background: var(--pure-white);    color: var(--void); }
+.tier-b { background: var(--border-mid);    color: var(--pure-white); }
+.tier-c { background: var(--border-dim);    color: var(--muted-grey); }
+
+.clip-details {
+    padding-right: 60px; /* space for tier badge */
+}
+
+.clip-time {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--pure-white);
+    letter-spacing: 0.06em;
+}
+
+.clip-duration-tag {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    margin-top: 3px;
+    letter-spacing: 0.08em;
+}
+
+.clip-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.clip-action-btn {
+    padding: 5px 10px;
+    background: var(--bg-surface);
+    color: var(--dim-text);
+    border: 1px solid var(--border-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.08s, border-color 0.08s, background 0.08s;
+}
+
+.clip-action-btn:hover {
+    color: var(--pure-white);
+    border-color: var(--pure-white);
+    background: var(--bg-module);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   EXPORT OPTIONS
+   ───────────────────────────────────────────────────────────── */
+.export-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.export-mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border-dim);
+    margin-bottom: var(--spacing-sm);
+}
+
+.export-mode-btn {
+    padding: 10px 8px;
+    background: var(--bg-module);
+    color: var(--muted-grey);
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.08s, color 0.08s;
+}
+
+.export-mode-btn:hover { color: var(--pure-white); }
+.export-mode-btn.active {
+    background: var(--pure-white);
+    color: var(--void);
+    font-weight: 900;
+}
+
+.export-toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px solid var(--border-dim);
+    border-bottom: 1px solid var(--border-dim);
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--dim-text);
+    letter-spacing: 0.08em;
+}
+
+/* ── Toggle Switch ── */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.toggle input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--border-mid);
+    cursor: pointer;
+    transition: background 0.15s;
+    border: 1px solid var(--border-mid);
+}
+
+.toggle-slider::before {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--muted-grey);
+    transition: transform 0.15s, background 0.15s;
+}
+
+.toggle input:checked + .toggle-slider {
+    background: var(--acid-green);
+    border-color: var(--acid-green);
+}
+
+.toggle input:checked + .toggle-slider::before {
+    transform: translate(18px, -50%);
+    background: var(--void);
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   PROGRESS OVERLAY
+   ───────────────────────────────────────────────────────────── */
+.progress-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-overlay.active { display: flex; }
+
+.progress-modal {
+    background: var(--void);
+    border: 2px solid var(--pure-white);
+    padding: 50px 60px;
+    text-align: center;
+    width: 420px;
+    max-width: 90vw;
+    position: relative;
+}
+
+/* corner accents */
+.progress-modal::before {
+    content: "";
+    position: absolute;
+    top: -2px; left: -2px;
+    width: 20px; height: 20px;
+    border-top: 4px solid var(--electric-cyan);
+    border-left: 4px solid var(--electric-cyan);
+}
+.progress-modal::after {
+    content: "";
+    position: absolute;
+    bottom: -2px; right: -2px;
+    width: 20px; height: 20px;
+    border-bottom: 4px solid var(--acid-green);
+    border-right: 4px solid var(--acid-green);
+}
+
+.progress-icon {
+    font-size: 24px;
+    margin-bottom: 20px;
+    /* pulsate */
+    animation: pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+    from { opacity: 0.4; transform: scale(0.95); }
+    to   { opacity: 1;   transform: scale(1.05); }
+}
+
+.progress-title {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: var(--pure-white);
+    margin-bottom: 10px;
+}
+
+.progress-message {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--muted-grey);
+    letter-spacing: 0.12em;
+    margin-bottom: 24px;
+    min-height: 16px;
+}
+
+.progress-bar-container {
+    background: var(--border-dim);
+    height: 3px;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    background: var(--electric-cyan);
+    height: 100%;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+/* shimmer on fill */
+.progress-bar-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+    animation: shimmer 1.5s linear infinite;
+}
+
+@keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(200%); }
+}
+
+.progress-cancel-btn {
+    margin-top: 20px;
+    width: 100%;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    padding: 11px 0;
+    /* starts subtle, flares on hover */
+    border-color: rgba(255,34,0,0.3);
+    color: rgba(255,34,0,0.6);
+    transition: color 0.1s, border-color 0.1s, background 0.1s, box-shadow 0.1s;
+}
+.progress-cancel-btn:hover {
+    border-color: var(--neon-red);
+    color: var(--neon-red);
+    box-shadow: 0 0 12px rgba(255,34,0,0.2);
+    transform: none;  /* override .btn hover translate */
+}
+
+.progress-percentage {
+    font-size: 11px;
+    font-weight: 900;
+    color: var(--electric-cyan);
+    margin-top: 10px;
+    letter-spacing: 0.12em;
+    box-shadow: var(--glow-cyan);
+    text-shadow: 0 0 8px rgba(0,242,255,0.6);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   TOASTS
+   ───────────────────────────────────────────────────────────── */
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 20000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+}
+
+.toast {
+    background: var(--void);
+    border: 1px solid var(--border-mid);
+    border-left: 3px solid var(--pure-white);
+    padding: 12px 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--pure-white);
+    max-width: 320px;
+    animation: toast-in 0.12s ease-out;
+    /* hard shadow */
+    box-shadow: 4px 4px 0 var(--border-mid);
+}
+
+.toast.success { border-left-color: var(--acid-green);    color: var(--acid-green); }
+.toast.error   { border-left-color: var(--neon-red);      color: var(--neon-red); }
+.toast.info    { border-left-color: var(--electric-cyan); color: var(--electric-cyan); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+.toast-exit {
+    opacity: 0;
+    transform: translateX(20px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   MISC UTILITIES
+   ───────────────────────────────────────────────────────────── */
+
+/* Focus ring – visible but stark */
+:focus-visible {
+    outline: 1px solid var(--electric-cyan);
+    outline-offset: 2px;
+}
+
+/* selection color */
+::selection {
+    background: var(--electric-cyan);
+    color: var(--void);
+}
+
+/* links inside the app */
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--electric-cyan); }
+
+/* ─────────────────────────────────────────────────────────────
+   BLINKING  CURSOR  –  appears in animated elements
+   ───────────────────────────────────────────────────────────── */
+@keyframes blink {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   RESPONSIVE  –  stack on smaller screens
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+    .analysis-layout {
+        grid-template-columns: 1fr;
+    }
+    .clips-panel {
+        max-height: none;
+    }
+    .stats-row {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .app-logo h1 {
+        font-size: 2.8rem;
+        letter-spacing: 0.08em;
+    }
+    .header-stats {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .video-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .app-container { padding: var(--gap-md); }
+    .stats-row { grid-template-columns: 1fr 1fr; }
+    .header-stats { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PRINT  –  kill the effects
+   ───────────────────────────────────────────────────────────── */
+@media print {
+    body::before, body::after { display: none; }
+    .text-glitch::before, .text-glitch::after { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   COMMAND MATRIX  –  Global Export Engine
+   Hardware-synthesizer-style: label left · variants right
+   ───────────────────────────────────────────────────────────── */
+
+.command-panel {
+    border: 1px solid var(--border-stark);
+    background: var(--bg-surface);
+    margin-bottom: var(--gap-lg);
+}
+
+.command-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 11px 20px;
+    border-bottom: 2px solid var(--pure-white);
+    background: var(--bg-module);
+    gap: var(--gap-md);
+}
+
+.command-panel-title {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    color: var(--dim-text);
+}
+
+/* ── BPM Tempo-Match Regler ── */
+.bpm-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bpm-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    user-select: none;
+}
+.bpm-toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.bpm-toggle-box {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    border: 1.5px solid var(--border-mid);
+    background: var(--void);
+    transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
+}
+.bpm-toggle input:checked + .bpm-toggle-box {
+    background: var(--acid-green);
+    border-color: var(--acid-green);
+    box-shadow: 0 0 8px rgba(204, 255, 0, 0.5);
+}
+.bpm-toggle input:focus-visible + .bpm-toggle-box {
+    outline: 2px solid var(--electric-cyan);
+    outline-offset: 2px;
+}
+.bpm-toggle-label {
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    color: var(--dim-text);
+    transition: color 0.1s;
+}
+.bpm-control.active .bpm-toggle-label { color: var(--acid-green); }
+
+.bpm-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 110px;
+    height: 3px;
+    background: var(--border-stark);
+    outline: none;
+    cursor: pointer;
+    transition: opacity 0.1s;
+}
+.bpm-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 9px;
+    height: 18px;
+    border: none;
+    background: var(--acid-green);
+    box-shadow: 0 0 8px rgba(204, 255, 0, 0.6);
+    cursor: pointer;
+}
+.bpm-slider::-moz-range-thumb {
+    width: 9px;
+    height: 18px;
+    border: none;
+    border-radius: 0;
+    background: var(--acid-green);
+    cursor: pointer;
+}
+.bpm-slider:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+.bpm-slider:disabled::-webkit-slider-thumb {
+    background: var(--muted-grey);
+    box-shadow: none;
+}
+.bpm-slider:disabled::-moz-range-thumb { background: var(--muted-grey); }
+
+.bpm-value {
+    min-width: 54px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: var(--dim-text);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.bpm-control.active .bpm-value { color: var(--acid-green); }
+.bpm-value em {
+    margin-left: 3px;
+    font-size: 8px;
+    font-style: normal;
+    letter-spacing: 0.1em;
+    color: var(--dim-text);
+}
+
+/* ── Matrix rows ── */
+.command-matrix {
+    display: flex;
+    flex-direction: column;
+}
+
+.command-row {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    border-bottom: 1px solid var(--border-dim);
+    min-height: 54px;
+    transition: background 0.08s;
+}
+
+.command-row:hover { background: rgba(255,255,255,0.015); }
+.command-row--last  { border-bottom: none; }
+
+/* Primary row (BEST-OF) gets slightly more presence */
+.command-row--accent { background: rgba(204,255,0,0.02); }
+.command-row--accent:hover { background: rgba(204,255,0,0.04); }
+
+/* ── Label cell ── */
+.command-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 20px;
+    border-right: 1px solid var(--border-stark);
+    overflow: hidden;
+}
+
+.command-cat-mark {
+    flex-shrink: 0;
+    width: 3px;
+    height: 22px;
+    background: var(--border-mid);
+}
+.command-cat-mark--green  { background: var(--acid-green); }
+.command-cat-mark--cyan   { background: var(--electric-cyan); }
+.command-cat-mark--amber  { background: var(--amber); }
+.command-cat-mark--purple { background: var(--neon-purple); }
+.command-cat-mark--red    { background: var(--neon-red); }
+.command-cat-mark--yellow { background: #ffcc00; }
+
+.command-name {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    color: var(--pure-white);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* .command-desc entfällt – Beschreibungen wandern ins Hover-Popup (#funcTooltip) */
+
+/* Zeilen mit Info-Popup: dezenter Hinweis, dass es mehr zu sehen gibt */
+.command-row[data-info] { cursor: help; }
+.command-row[data-info] .command-name {
+    border-bottom: 1px dotted var(--border-mid);
+    padding-bottom: 1px;
+    transition: border-color 0.1s;
+}
+.command-row[data-info]:hover .command-name { border-bottom-color: var(--sub-text); }
+
+/* ── Funktions-Info-Popup (erscheint bei Hover mit Verzögerung) ── */
+#funcTooltip {
+    position: fixed;
+    z-index: 900;
+    left: -9999px;
+    top: 0;
+    max-width: 340px;
+    padding: 12px 15px;
+    background: var(--bg-raised);
+    border: 1.5px solid var(--accent, var(--pure-white));
+    border-left-width: 4px;
+    box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(5px);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+#funcTooltip.visible { opacity: 1; transform: translateY(0); }
+
+.func-tooltip-title {
+    margin-bottom: 7px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    color: var(--accent, var(--pure-white));
+}
+.func-tooltip-body {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.55;
+    letter-spacing: 0.02em;
+    color: var(--sub-text);
+}
+
+/* ── Variants cell ── */
+.command-variants {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+}
+
+/* Vertical separator between duration buttons and action buttons */
+.cmd-separator {
+    width: 1px;
+    height: 28px;
+    background: var(--border-stark);
+    margin: 0 6px;
+    flex-shrink: 0;
+}
+
+/* ── Duration buttons (equal-width, compact) ── */
+.cmd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 34px;
+    padding: 0;
+    background: var(--void);
+    color: var(--dim-text);
+    border: 1px solid var(--border-stark);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 0.06s, box-shadow 0.06s, color 0.06s, background 0.06s, border-color 0.06s;
+    white-space: nowrap;
+}
+
+.cmd-btn:hover {
+    color: var(--pure-white);
+    border-color: var(--border-hot);
+    transform: translate(-2px, -2px);
+    box-shadow: 2px 2px 0 var(--border-mid);
+}
+
+.cmd-btn:active { transform: none; box-shadow: none; }
+
+/* Accent variants */
+.cmd-btn--green {
+    border-color: rgba(204,255,0,0.35);
+    color: var(--acid-green);
+}
+.cmd-btn--green:hover {
+    background: var(--acid-green);
+    color: var(--void);
+    border-color: var(--acid-green);
+    box-shadow: 2px 2px 0 rgba(204,255,0,0.3);
+}
+
+.cmd-btn--cyan {
+    border-color: rgba(0,242,255,0.35);
+    color: var(--electric-cyan);
+}
+.cmd-btn--cyan:hover {
+    background: var(--electric-cyan);
+    color: var(--void);
+    border-color: var(--electric-cyan);
+    box-shadow: 2px 2px 0 rgba(0,242,255,0.3);
+}
+
+/* Amber / Chrono Arc */
+.cmd-btn--amber {
+    border-color: rgba(255,136,0,0.35);
+    color: var(--amber);
+}
+.cmd-btn--amber:hover {
+    background: var(--amber);
+    color: var(--void);
+    border-color: var(--amber);
+    box-shadow: 2px 2px 0 rgba(255,136,0,0.35);
+}
+
+/* Purple / Random Arc */
+.cmd-btn--purple {
+    border-color: rgba(204,0,255,0.35);
+    color: var(--neon-purple);
+}
+.cmd-btn--purple:hover {
+    background: var(--neon-purple);
+    color: var(--void);
+    border-color: var(--neon-purple);
+    box-shadow: 2px 2px 0 rgba(204,0,255,0.3);
+}
+
+/* Red / Story Arc */
+.cmd-btn--red {
+    border-color: rgba(255,34,0,0.4);
+    color: var(--neon-red);
+}
+.cmd-btn--red:hover {
+    background: var(--neon-red);
+    color: var(--void);
+    border-color: var(--neon-red);
+    box-shadow: 2px 2px 0 rgba(255,34,0,0.35);
+}
+
+/* Blue / Adaptive Arc */
+.cmd-btn--blue {
+    border-color: rgba(0,136,255,0.4);
+    color: #0088ff;
+}
+.cmd-btn--blue:hover {
+    background: #0088ff;
+    color: var(--void);
+    border-color: #0088ff;
+    box-shadow: 2px 2px 0 rgba(0,136,255,0.35);
+}
+.command-cat-mark--blue { background: #0088ff; }
+
+/* Pink / BPM Lock */
+.cmd-btn--pink {
+    border-color: rgba(255,0,153,0.4);
+    color: #ff0099;
+}
+.cmd-btn--pink:hover {
+    background: #ff0099;
+    color: var(--void);
+    border-color: #ff0099;
+    box-shadow: 2px 2px 0 rgba(255,0,153,0.35);
+}
+.command-cat-mark--pink { background: #ff0099; }
+
+/* Yellow / WM Cleanup */
+.cmd-btn--yellow {
+    border-color: rgba(255,204,0,0.4);
+    color: #ffcc00;
+}
+.cmd-btn--yellow:hover {
+    background: #ffcc00;
+    color: var(--void);
+    border-color: #ffcc00;
+    box-shadow: 2px 2px 0 rgba(255,204,0,0.35);
+}
+
+/* Wide single-action button (no fixed width) */
+.cmd-btn--wide {
+    width: auto;
+    padding: 0 28px;
+    letter-spacing: 0.2em;
+}
+
+/* White / primary action (EDITOR SET) — wider */
+.cmd-btn--white {
+    width: auto;
+    padding: 0 20px;
+    background: var(--pure-white);
+    color: var(--void);
+    border-color: var(--pure-white);
+}
+.cmd-btn--white:hover {
+    background: var(--void);
+    color: var(--pure-white);
+    box-shadow: 2px 2px 0 var(--dim-text);
+}
+
+/* ── Danger button variant (ghost, contained in panel header) ── */
+.btn.btn-danger {
+    font-size: 9px;
+    padding: 9px 18px;
+    letter-spacing: 0.14em;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   HEADER STAT BADGE LABEL
+   ───────────────────────────────────────────────────────────── */
+.stat-badge-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--muted-grey);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   AUTOSELECT ROW  (Studio)
+   ───────────────────────────────────────────────────────────── */
+.autoselect-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border-dim);
+    margin-bottom: var(--spacing-md);
+}
+
+.autoselect-row .btn {
+    font-size: 9px;
+    padding: 10px 8px;
+    letter-spacing: 0.1em;
+    background: var(--bg-module);
+    border: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ANALYSIS HEADER SPACER
+   ───────────────────────────────────────────────────────────── */
+.analysis-header-spacer { width: 80px; flex-shrink: 0; }
+
+
+/* ─────────────────────────────────────────────────────────────
+   PROGRESS LOADER  –  three blinking bars (no emoji)
+   ───────────────────────────────────────────────────────────── */
+.progress-loader {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 5px;
+    height: 28px;
+    margin-bottom: 22px;
+}
+
+.progress-loader span {
+    display: block;
+    width: 4px;
+    background: var(--electric-cyan);
+    animation: bar-dance 1.1s ease-in-out infinite;
+}
+
+.progress-loader span:nth-child(1) { height: 14px; animation-delay: 0s;     }
+.progress-loader span:nth-child(2) { height: 28px; animation-delay: 0.18s;  }
+.progress-loader span:nth-child(3) { height: 18px; animation-delay: 0.36s;  }
+
+@keyframes bar-dance {
+    0%,100% { opacity: 0.25; transform: scaleY(0.6); }
+    50%      { opacity: 1;    transform: scaleY(1);   }
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   WATERMARK BAR
+   ───────────────────────────────────────────────────────────── */
+.wm-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    margin-top: var(--spacing-md);
+    background: var(--bg-module);
+    border: 1px solid var(--border-stark);
+    border-left: 3px solid #ffcc00;
+}
+
+.wm-scan-btn {
+    flex-shrink: 0;
+    font-size: 9px;
+    padding: 7px 14px;
+    background: var(--void);
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
+    letter-spacing: 0.15em;
+}
+.wm-scan-btn:hover { background: #ffcc0022; }
+.wm-scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.wm-result {
+    flex: 1;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--muted-grey);
+}
+.wm-result--found { color: #ffcc00; }
+.wm-result--clean { color: var(--acid-green); }
+
+.wm-remove-btn {
+    flex-shrink: 0;
+    font-size: 9px;
+    padding: 7px 14px;
+    background: #ffcc0022;
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
+    letter-spacing: 0.15em;
+}
+.wm-remove-btn:hover { background: #ffcc0044; }
+
+/* ════════════════════════════════════════════════════════════
+   END  ·  UNREEL  ·  OBSIDIAN EDITION
+   ════════════════════════════════════════════════════════════ */
+
+```
+
+### `static/index.html`
+
+```html
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="UNREEL – DJ Video Analyse & Schnitt Tool für Social Media Reels">
+    <title>UNREEL | DJ Video Utility</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=3.5.2">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23000'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' font-size='72' font-family='monospace' fill='%23fff'>U</text></svg>">
+</head>
+<body>
+
+<div class="app-container">
+
+    <!-- ══════════ HEADER ══════════ -->
+    <header class="app-header">
+        <div class="app-logo">
+            <h1 class="text-glitch" data-text="UNREEL">UNREEL</h1>
+            <div class="subtitle">// PRODUCTION UTILITY v2.0 // OBSIDIAN EDITION</div>
+        </div>
+        <div class="header-stats">
+            <div class="stat-badge">
+                <span class="stat-badge-label">VIDEOS</span>
+                <span class="number" id="videoCount">–</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ══════════ TICKER ══════════ -->
+    <div class="ticker-bar" aria-hidden="true">
+        <div class="ticker-track">
+            <span><em>//</em> UNREEL <em>//</em> DJ PRODUCTION UTILITY <em>//</em> OBSIDIAN EDITION <em>//</em> HARD TECHNO <em>//</em> NO MERCY <em>//</em> SCHRANZ <em>//</em> HIGHLIGHT ENGINE <em>//</em> BEAT SYNC <em>//</em> UNREEL <em>//</em> DJ PRODUCTION UTILITY <em>//</em> OBSIDIAN EDITION <em>//</em> HARD TECHNO <em>//</em> NO MERCY <em>//</em> SCHRANZ <em>//</em> HIGHLIGHT ENGINE <em>//</em> BEAT SYNC <em>//</em></span>
+            <span><em>//</em> UNREEL <em>//</em> DJ PRODUCTION UTILITY <em>//</em> OBSIDIAN EDITION <em>//</em> HARD TECHNO <em>//</em> NO MERCY <em>//</em> SCHRANZ <em>//</em> HIGHLIGHT ENGINE <em>//</em> BEAT SYNC <em>//</em> UNREEL <em>//</em> DJ PRODUCTION UTILITY <em>//</em> OBSIDIAN EDITION <em>//</em> HARD TECHNO <em>//</em> NO MERCY <em>//</em> SCHRANZ <em>//</em> HIGHLIGHT ENGINE <em>//</em> BEAT SYNC <em>//</em></span>
+        </div>
+    </div>
+
+
+    <!-- ══════════════════════════════════════
+         LIBRARY VIEW
+    ══════════════════════════════════════ -->
+    <section id="libraryView">
+
+        <!-- Command Matrix ─────────────────── -->
+        <div class="command-panel">
+            <header class="command-panel-header">
+                <span class="command-panel-title">GLOBAL EXPORT ENGINE</span>
+
+                <div class="bpm-control" id="bpmControl"
+                     title="Alle Clips beim Export auf eine Ziel-BPM zeitdehnen (Tempo-Match)">
+                    <label class="bpm-toggle">
+                        <input type="checkbox" id="bpmMatchToggle">
+                        <span class="bpm-toggle-box"></span>
+                        <span class="bpm-toggle-label">TEMPO MATCH</span>
+                    </label>
+                    <input type="range" id="bpmSlider" class="bpm-slider"
+                           min="140" max="165" step="1" value="150" disabled
+                           aria-label="Ziel-BPM">
+                    <span class="bpm-value" id="bpmValue">OFF</span>
+                </div>
+
+                <button class="btn btn-danger" id="resetUsageLogBtn"
+                        title="Rotations-Gewichtung zurücksetzen – alle Videos gleichwertig">
+                    ROTATION RESET
+                </button>
+            </header>
+
+            <div class="command-matrix">
+
+                <!-- BEST-OF -->
+                <div class="command-row command-row--accent" data-info="Montage aus den höchstbewerteten Clips ALLER analysierten Videos. Die Rotation sorgt dafür, dass zuletzt verwendete Videos seltener vorkommen. Der EDITOR SET-Button liefert stattdessen die Top-Clips als Einzeldateien (SMART PICK) – ideal für den manuellen Schnitt.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--green"></span>
+                        <span class="command-name">BEST-OF</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--green" id="globalBestOf15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--green" id="globalBestOf30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--green" id="globalBestOf45Btn">45S</button>
+                        <button class="cmd-btn cmd-btn--green" id="globalBestOf90Btn">90S</button>
+                        <div class="cmd-separator"></div>
+                        <button class="cmd-btn cmd-btn--white" id="exportBestOfSetBtn">EDITOR SET</button>
+                    </div>
+                </div>
+
+                <!-- HIGHLIGHT ARC -->
+                <div class="command-row" data-info="Baut eine Spannungskurve auf: ruhigere Clips am Anfang, die Energie steigt kontinuierlich bis zum stärksten Moment (Money Shot) bei ca. 70 % der Länge, danach Ausklang. Erzeugt ein dramaturgisch dichtes Reel.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--cyan"></span>
+                        <span class="command-name">HIGHLIGHT ARC</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--cyan" id="highlightArc15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--cyan" id="highlightArc30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--cyan" id="highlightArc45Btn">45S</button>
+                        <button class="cmd-btn cmd-btn--cyan" id="highlightArc90Btn">90S</button>
+                    </div>
+                </div>
+
+                <!-- CHRONO ARC -->
+                <div class="command-row" data-info="Ordnet die Clips nach dem echten Aufnahmedatum (aus den Video-Metadaten): das älteste Video als Opener, das neueste als Closer, dazwischen die stärksten Momente nach Tier sortiert. Erzählt den Verlauf einer Tour oder Saison.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--amber"></span>
+                        <span class="command-name">CHRONO ARC</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--amber" id="chronoArc15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--amber" id="chronoArc30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--amber" id="chronoArc45Btn">45S</button>
+                        <button class="cmd-btn cmd-btn--amber" id="chronoArc90Btn">90S</button>
+                    </div>
+                </div>
+
+                <!-- RANDOM ARC -->
+                <div class="command-row" data-info="Komplett zufällige Mischung kurzer Clips aus allen Videos – für überraschende, unvorhersehbare Schnittfolgen. Bei jedem Lauf anders. Gut, um schnell frische Varianten auszuprobieren.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--purple"></span>
+                        <span class="command-name">RANDOM ARC</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--purple" id="randomArc15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--purple" id="randomArc30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--purple" id="randomArc45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- STORY ARC -->
+                <div class="command-row" data-info="Vier-Segment-Dramaturgie aus allen Videos: Hook + Build-Up → Drop → Crowd-Reaktion → Outro. Erzählt eine kleine Geschichte, statt nur Highlights aneinanderzureihen. Feste Länge.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--red"></span>
+                        <span class="command-name">STORY ARC</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--wide cmd-btn--red" id="storyArcBtn">RENDER</button>
+                    </div>
+                </div>
+
+                <!-- ADAPTIVE ARC -->
+                <div class="command-row" data-info="Die Clip-Längen passen sich der Energie an: hohe Energie = schnelle, kurze Cuts; niedrige Energie = längere Einstellungen. Reihenfolge von ruhig zu Climax – ein natürlicher Calm-to-Climax-Arc.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--blue"></span>
+                        <span class="command-name">ADAPTIVE ARC</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--blue" id="adaptiveArc15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--blue" id="adaptiveArc30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--blue" id="adaptiveArc45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- STROBE MONTAGE -->
+                <div class="command-row" data-info="Extrem schnelle Montage für High-Energy Momente. Synchronisiert harte Schnitte exakt auf jeden 2. oder 4. Beat.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--purple"></span>
+                        <span class="command-name">STROBE MONTAGE</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--purple" id="strobeMontage15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--purple" id="strobeMontage30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--purple" id="strobeMontage45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- CROWD & CULTURE -->
+                <div class="command-row" data-info="Fokussiert sich auf die Crowd-Reaktionen (Jubel, Motion kurz nach Drop). Perfekt für Social Proof.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--green"></span>
+                        <span class="command-name">CROWD CULTURE</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--green" id="crowdCulture15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--green" id="crowdCulture30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--green" id="crowdCulture45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- DROP ARCHITECTURE -->
+                <div class="command-row" data-info="Sucht nach dem absolut stärksten Bass-Drop und startet den Clip exakt 3 Sekunden vorher (Stille/Spannung) – der perfekte 15s Hook für Social Media.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--red"></span>
+                        <span class="command-name">DROP ARCHITECTURE</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--wide cmd-btn--red" id="dropArchitectureBtn">15S EXPORT</button>
+                    </div>
+                </div>
+
+                <!-- TRANSITION MASTERY -->
+                <div class="command-row" data-info="Sucht nach einer langen, ruhigen und gleichmäßigen Sequenz, in der der DJ konzentriert an den CDJs Tracks synchronisiert. Ideal als edukativer Insider-Content.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--blue"></span>
+                        <span class="command-name">TRANSITION MASTERY</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--blue" id="transitionMastery30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--blue" id="transitionMastery45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- BPM LOCK -->
+                <div class="command-row" data-info="Alle Schnittpunkte liegen exakt auf dem Beat, die Clip-Längen werden auf ganze Takte (4 Beats) gerundet. Jedes Video behält dabei sein eigenes Beat-Raster. Ergibt rhythmisch perfekt sitzende Schnitte.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--pink"></span>
+                        <span class="command-name">BPM LOCK</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--pink" id="bpmLocked15Btn">15S</button>
+                        <button class="cmd-btn cmd-btn--pink" id="bpmLocked30Btn">30S</button>
+                        <button class="cmd-btn cmd-btn--pink" id="bpmLocked45Btn">45S</button>
+                    </div>
+                </div>
+
+                <!-- SEAMLESS LOOP -->
+                <div class="command-row" data-info="Erzeugt einen perfekt nahtlosen Loop aus dem besten Clip (Split &amp; Swap mit Crossfade): Anfang und Ende gehen ohne sichtbaren Übergang ineinander über – ideal für endlos laufende Social-Media-Loops.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--cyan"></span>
+                        <span class="command-name">SEAMLESS LOOP</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--cyan" id="loopReel8Btn">8S</button>
+                        <button class="cmd-btn cmd-btn--cyan" id="loopReel15Btn">15S</button>
+                    </div>
+                </div>
+
+                <!-- WM CLEANUP -->
+                <div class="command-row command-row--last" data-info="Scannt alle bereits exportierten Clips auf CapCut-Wasserzeichen und schneidet die betroffenen Stellen (meist am Anfang/Ende) automatisch heraus. Läuft über alle Export-Ordner.">
+                    <div class="command-label">
+                        <span class="command-cat-mark command-cat-mark--yellow"></span>
+                        <span class="command-name">WM CLEANUP</span>
+                    </div>
+                    <div class="command-variants">
+                        <button class="cmd-btn cmd-btn--wide cmd-btn--yellow" id="wmBatchCleanBtn">CLEAN ALL</button>
+                    </div>
+                </div>
+
+            </div><!-- /command-matrix -->
+        </div><!-- /command-panel -->
+
+        <!-- Video Grid ─────────────────────── -->
+        <div class="empty-state" id="emptyLibrary" style="display: none;">
+            // KEINE VIDEOS IM QUELLORDNER GEFUNDEN
+        </div>
+        <div class="video-grid" id="videoGrid"></div>
+
+    </section>
+
+
+    <!-- ══════════════════════════════════════
+         STUDIO VIEW
+    ══════════════════════════════════════ -->
+    <section class="analysis-view" id="analysisView">
+
+        <div class="analysis-header">
+            <button class="back-btn" id="backToLibrary">← ZURÜCK</button>
+            <h2 class="analysis-title" id="analysisVideoName">DATEI_NAME.MP4</h2>
+            <div class="analysis-header-spacer"></div>
+        </div>
+
+        <div class="analysis-layout">
+
+            <!-- Left: Player + Timeline ─────── -->
+            <div class="player-section">
+
+                <div class="video-player-container">
+                    <video id="videoPlayer" controls preload="metadata">
+                        <source id="videoSource" src="" type="video/mp4">
+                    </video>
+                </div>
+
+                <!-- Watermark Detector Bar -->
+                <div class="wm-bar" id="wmBar">
+                    <button class="btn wm-scan-btn" id="wmScanBtn">WM SCAN</button>
+                    <span class="wm-result" id="wmResult">CAPCUT WATERMARK CHECK</span>
+                    <button class="btn wm-remove-btn" id="wmRemoveBtn" style="visibility:hidden;">REMOVE &amp; EXPORT</button>
+                </div>
+
+                <div class="stats-row" id="statsRow" style="display: none;">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTempo">–</div>
+                        <div class="stat-label">BPM</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statDuration">–</div>
+                        <div class="stat-label">Dauer</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statHighlights">–</div>
+                        <div class="stat-label">Highlights</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statDrops">–</div>
+                        <div class="stat-label">Bass Drops</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statClips">–</div>
+                        <div class="stat-label">Clip-Vorschläge</div>
+                    </div>
+                </div>
+
+                <div class="timeline-container" id="timelineSection" style="display: none;">
+                    <div class="timeline-header">
+                        <h3>TIMELINE</h3>
+                        <div class="timeline-legend">
+                            <div class="legend-item"><div class="legend-dot energy"></div>Energie</div>
+                            <div class="legend-item"><div class="legend-dot bass"></div>Bass</div>
+                            <div class="legend-item"><div class="legend-dot motion"></div>Motion</div>
+                            <div class="legend-item"><div class="legend-dot highlight"></div>Highlights</div>
+                        </div>
+                    </div>
+                    <div class="timeline-canvas-wrapper" id="timelineWrapper">
+                        <canvas id="timelineCanvas"></canvas>
+                        <div class="timeline-playhead" id="playhead"></div>
+                    </div>
+                    <div class="timeline-time-labels">
+                        <span id="timeStart">0:00</span>
+                        <span id="timeMid">–</span>
+                        <span id="timeEnd">–</span>
+                    </div>
+                </div>
+
+            </div><!-- /player-section -->
+
+
+            <!-- Right: Clips Panel ──────────── -->
+            <div class="clips-panel" id="clipsPanel" style="display: none;">
+
+                <!-- Clip Suggestions -->
+                <div class="panel-section">
+                    <div class="panel-section-header">
+                        <h3>CLIP SUGGESTIONS</h3>
+                        <span class="clip-count-badge" id="clipCountBadge">0</span>
+                    </div>
+
+                    <div class="preset-tabs" id="presetTabs">
+                        <button class="preset-tab active" data-preset="all">ALL</button>
+                        <button class="preset-tab" data-preset="1s">1S</button>
+                        <button class="preset-tab" data-preset="2s">2S</button>
+                        <button class="preset-tab" data-preset="3s">3S</button>
+                        <button class="preset-tab" data-preset="5s">5S</button>
+                        <button class="preset-tab" data-preset="15s">15S</button>
+                    </div>
+
+                    <div class="autoselect-row">
+                        <button class="btn btn-secondary btn-block" id="autoSelect15">AUTO 15S</button>
+                        <button class="btn btn-secondary btn-block" id="autoSelect30">AUTO 30S</button>
+                    </div>
+
+                    <div class="clips-list" id="clipsList"></div>
+                </div>
+
+                <!-- Export Controls -->
+                <div class="panel-section">
+                    <div class="panel-section-header">
+                        <h3>EXPORT</h3>
+                    </div>
+
+                    <div class="export-options">
+
+                        <div class="export-mode-toggle">
+                            <button class="export-mode-btn active" data-mode="reel" id="exportModeReel">
+                                REEL 9:16
+                            </button>
+                            <button class="export-mode-btn" data-mode="raw" id="exportModeRaw">
+                                RAW CLIP
+                            </button>
+                        </div>
+
+                        <div class="export-toggle-row">
+                            <span>FADE IN / OUT</span>
+                            <label class="toggle">
+                                <input type="checkbox" id="fadeToggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <button class="btn btn-primary btn-block" id="exportSelectedBtn">AUSWAHL EXPORTIEREN</button>
+<button class="btn btn-secondary btn-block" id="exportAllBtn">ALLE EXPORTIEREN</button>
+
+                    </div>
+                </div>
+
+            </div><!-- /clips-panel -->
+
+        </div><!-- /analysis-layout -->
+    </section>
+
+
+
+</div><!-- /app-container -->
+
+
+<!-- ══════════ PROGRESS OVERLAY ══════════ -->
+<div class="progress-overlay" id="progressOverlay" role="dialog" aria-modal="true">
+    <div class="progress-modal">
+        <div class="progress-loader">
+            <span></span><span></span><span></span>
+        </div>
+        <div class="progress-title" id="progressTitle">WIRD VERARBEITET</div>
+        <div class="progress-message" id="progressMessage">INITIALISIERUNG...</div>
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progressBarFill" style="width: 0%"></div>
+        </div>
+        <div class="progress-percentage" id="progressPercentage">0%</div>
+        <button class="btn btn-danger progress-cancel-btn" id="progressCancelBtn"
+                style="display:none" aria-label="Export abbrechen">
+            ABBRECHEN
+        </button>
+    </div>
+</div>
+
+<!-- ══════════ TOASTS ══════════ -->
+<div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+<script src="/static/js/app.js?v=3.5.2"></script>
+</body>
+</html>
+
+```
+
+### `static/js/app.js`
+
+```javascript
+/**
+ * UNREEL – PRODUCTION UTILITY v2.0
+ * Pure Techno Aesthetic - Brutalist / Industrial
+ */
+
+// ============================================
+// STATE
+// ============================================
+const state = {
+    videos: [],
+    currentVideo: null,
+    analysisResults: null,
+    suggestedClips: [],
+    selectedClips: new Set(),
+    currentPresetFilter: 'all',
+    exportMode: 'reel',
+    pollInterval: null,
+    activeExportJobId: null,   // job_id des laufenden Exports (für Cancel)
+};
+
+// ============================================
+// DOM REFERENCES
+// ============================================
+const dom = {
+    // Views
+    libraryView: document.getElementById('libraryView'),
+    analysisView: document.getElementById('analysisView'),
+    // Header
+    videoCount: document.getElementById('videoCount'),
+
+    // Tabs
+
+    // Library
+    videoGrid: document.getElementById('videoGrid'),
+    emptyLibrary: document.getElementById('emptyLibrary'),
+    exportBestOfSetBtn: document.getElementById('exportBestOfSetBtn'),
+    resetUsageLogBtn: document.getElementById('resetUsageLogBtn'),
+    // BPM Tempo-Match
+    bpmControl: document.getElementById('bpmControl'),
+    bpmMatchToggle: document.getElementById('bpmMatchToggle'),
+    bpmSlider: document.getElementById('bpmSlider'),
+    bpmValue: document.getElementById('bpmValue'),
+    globalBestOf15Btn: document.getElementById('globalBestOf15Btn'),
+    globalBestOf30Btn: document.getElementById('globalBestOf30Btn'),
+    globalBestOf45Btn: document.getElementById('globalBestOf45Btn'),
+    globalBestOf90Btn: document.getElementById('globalBestOf90Btn'),
+    highlightArc15Btn: document.getElementById('highlightArc15Btn'),
+    highlightArc30Btn: document.getElementById('highlightArc30Btn'),
+    highlightArc45Btn: document.getElementById('highlightArc45Btn'),
+    highlightArc90Btn: document.getElementById('highlightArc90Btn'),
+    chronoArc15Btn: document.getElementById('chronoArc15Btn'),
+    chronoArc30Btn: document.getElementById('chronoArc30Btn'),
+    chronoArc45Btn: document.getElementById('chronoArc45Btn'),
+    chronoArc90Btn: document.getElementById('chronoArc90Btn'),
+    randomArc15Btn: document.getElementById('randomArc15Btn'),
+    randomArc30Btn: document.getElementById('randomArc30Btn'),
+    randomArc45Btn: document.getElementById('randomArc45Btn'),
+    adaptiveArc15Btn: document.getElementById('adaptiveArc15Btn'),
+    adaptiveArc30Btn: document.getElementById('adaptiveArc30Btn'),
+    adaptiveArc45Btn: document.getElementById('adaptiveArc45Btn'),
+    bpmLocked15Btn: document.getElementById('bpmLocked15Btn'),
+    bpmLocked30Btn: document.getElementById('bpmLocked30Btn'),
+    bpmLocked45Btn: document.getElementById('bpmLocked45Btn'),
+    strobeMontage15Btn: document.getElementById('strobeMontage15Btn'),
+    strobeMontage30Btn: document.getElementById('strobeMontage30Btn'),
+    strobeMontage45Btn: document.getElementById('strobeMontage45Btn'),
+    crowdCulture15Btn: document.getElementById('crowdCulture15Btn'),
+    crowdCulture30Btn: document.getElementById('crowdCulture30Btn'),
+    crowdCulture45Btn: document.getElementById('crowdCulture45Btn'),
+    loopReel8Btn: document.getElementById('loopReel8Btn'),
+    loopReel15Btn: document.getElementById('loopReel15Btn'),
+    dropArchitectureBtn: document.getElementById('dropArchitectureBtn'),
+    transitionMastery30Btn: document.getElementById('transitionMastery30Btn'),
+    transitionMastery45Btn: document.getElementById('transitionMastery45Btn'),
+    storyArcBtn: document.getElementById('storyArcBtn'),
+    wmBatchCleanBtn: document.getElementById('wmBatchCleanBtn'),
+
+    // Production / Studio
+    analysisVideoName: document.getElementById('analysisVideoName'),
+    backToLibrary: document.getElementById('backToLibrary'),
+    videoPlayer: document.getElementById('videoPlayer'),
+    videoSource: document.getElementById('videoSource'),
+    statsRow: document.getElementById('statsRow'),
+    timelineSection: document.getElementById('timelineSection'),
+    clipsPanel: document.getElementById('clipsPanel'),
+    timelineCanvas: document.getElementById('timelineCanvas'),
+    timelineWrapper: document.getElementById('timelineWrapper'),
+    playhead: document.getElementById('playhead'),
+    clipsList: document.getElementById('clipsList'),
+    clipCountBadge: document.getElementById('clipCountBadge'),
+    presetTabs: document.getElementById('presetTabs'),
+    autoSelect15: document.getElementById('autoSelect15'),
+    autoSelect30: document.getElementById('autoSelect30'),
+
+    // Stats
+    statTempo: document.getElementById('statTempo'),
+    statDuration: document.getElementById('statDuration'),
+    statHighlights: document.getElementById('statHighlights'),
+    statDrops: document.getElementById('statDrops'),
+    statClips: document.getElementById('statClips'),
+
+    // Time labels
+    timeStart: document.getElementById('timeStart'),
+    timeMid: document.getElementById('timeMid'),
+    timeEnd: document.getElementById('timeEnd'),
+
+    // Export
+    exportModeReel: document.getElementById('exportModeReel'),
+    exportModeRaw: document.getElementById('exportModeRaw'),
+    fadeToggle: document.getElementById('fadeToggle'),
+    exportSelectedBtn: document.getElementById('exportSelectedBtn'),
+    exportAllBtn: document.getElementById('exportAllBtn'),
+
+    // Watermark
+    wmScanBtn:  document.getElementById('wmScanBtn'),
+    wmResult:   document.getElementById('wmResult'),
+    wmRemoveBtn: document.getElementById('wmRemoveBtn'),
+
+    // Progress
+    progressOverlay: document.getElementById('progressOverlay'),
+    progressTitle: document.getElementById('progressTitle'),
+    progressMessage: document.getElementById('progressMessage'),
+    progressBarFill: document.getElementById('progressBarFill'),
+    progressPercentage: document.getElementById('progressPercentage'),
+
+    // Toast
+    toastContainer: document.getElementById('toastContainer'),
+
+    // Cancel
+    progressCancelBtn: document.getElementById('progressCancelBtn'),
+};
+
+// ============================================
+// INITIALIZATION
+// ============================================
+document.addEventListener('DOMContentLoaded', () => {
+    initEventListeners();
+    initFunctionTooltips();
+    loadVideos();
+
+    // Auto-refresh library
+    setInterval(loadVideos, 30000);
+});
+
+function initEventListeners() {
+    // Back button
+    dom.backToLibrary.addEventListener('click', () => switchView('library'));
+
+    // Watermark
+    dom.wmScanBtn.addEventListener('click', runWatermarkScan);
+    dom.wmRemoveBtn.addEventListener('click', removeWatermark);
+
+    // Global Best-Of
+    dom.globalBestOf15Btn.addEventListener('click', () => createGlobalBestOf(15));
+    dom.globalBestOf30Btn.addEventListener('click', () => createGlobalBestOf(30));
+    dom.globalBestOf45Btn.addEventListener('click', () => createGlobalBestOf(45));
+    dom.globalBestOf90Btn?.addEventListener('click', () => createGlobalBestOf(90));
+
+    // Highlight Arcs
+    dom.highlightArc15Btn.addEventListener('click', () => createHighlightArc(15));
+    dom.highlightArc30Btn.addEventListener('click', () => createHighlightArc(30));
+    dom.highlightArc45Btn.addEventListener('click', () => createHighlightArc(45));
+    dom.highlightArc90Btn?.addEventListener('click', () => createHighlightArc(90));
+
+    // Chrono Arcs
+    dom.chronoArc15Btn.addEventListener('click', () => createChronologicalReel(15));
+    dom.chronoArc30Btn.addEventListener('click', () => createChronologicalReel(30));
+    dom.chronoArc45Btn.addEventListener('click', () => createChronologicalReel(45));
+    dom.chronoArc90Btn?.addEventListener('click', () => createChronologicalReel(90));
+
+    // Random Arcs
+    dom.randomArc15Btn.addEventListener('click', () => createRandomReel(15));
+    dom.randomArc30Btn.addEventListener('click', () => createRandomReel(30));
+    dom.randomArc45Btn.addEventListener('click', () => createRandomReel(45));
+
+    // SEAMLESS LOOP
+    dom.loopReel8Btn?.addEventListener('click', () => createSeamlessLoop(8));
+    dom.loopReel15Btn?.addEventListener('click', () => createSeamlessLoop(15));
+    
+    // DROP ARCHITECTURE
+    dom.dropArchitectureBtn?.addEventListener('click', () => createDropArchitecture(15));
+
+    // TRANSITION MASTERY
+    dom.transitionMastery30Btn?.addEventListener('click', () => createTransitionMastery(30));
+    dom.transitionMastery45Btn?.addEventListener('click', () => createTransitionMastery(45));
+
+    // WM CLEANUP
+    dom.wmBatchCleanBtn?.addEventListener('click', batchCleanWatermarks);
+
+    // Best-Of Set (Individual Clips)
+    dom.exportBestOfSetBtn.addEventListener('click', createBestOfSet);
+
+    // Rotation Reset
+    dom.resetUsageLogBtn.addEventListener('click', resetUsageLog);
+
+    // Adaptive Arc
+    dom.adaptiveArc15Btn.addEventListener('click', () => createAdaptiveReel(15));
+    dom.adaptiveArc30Btn.addEventListener('click', () => createAdaptiveReel(30));
+    dom.adaptiveArc45Btn.addEventListener('click', () => createAdaptiveReel(45));
+
+    // BPM Lock
+    dom.bpmLocked15Btn.addEventListener('click', () => createBpmLockedReel(15));
+    dom.bpmLocked30Btn.addEventListener('click', () => createBpmLockedReel(30));
+    dom.bpmLocked45Btn.addEventListener('click', () => createBpmLockedReel(45));
+
+    // Strobe Montage
+    dom.strobeMontage15Btn.addEventListener('click', () => createStrobeMontage(15));
+    dom.strobeMontage30Btn.addEventListener('click', () => createStrobeMontage(30));
+    dom.strobeMontage45Btn.addEventListener('click', () => createStrobeMontage(45));
+
+    // Crowd Culture
+    dom.crowdCulture15Btn.addEventListener('click', () => createCrowdCulture(15));
+    dom.crowdCulture30Btn.addEventListener('click', () => createCrowdCulture(30));
+    dom.crowdCulture45Btn.addEventListener('click', () => createCrowdCulture(45));
+
+    // Story Arc
+    dom.storyArcBtn.addEventListener('click', createStoryArc);
+
+    // WM Batch Clean
+    dom.wmBatchCleanBtn.addEventListener('click', batchCleanWatermarks);
+
+    // BPM Tempo-Match Regler
+    dom.bpmMatchToggle.addEventListener('change', onBpmToggle);
+    dom.bpmSlider.addEventListener('input', updateBpmLabel);
+
+    // Preset filter tabs
+    dom.presetTabs.addEventListener('click', (e) => {
+        const tab = e.target.closest('.preset-tab');
+        if (tab) {
+            document.querySelectorAll('.preset-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            state.currentPresetFilter = tab.dataset.preset;
+            renderClipsList();
+        }
+    });
+
+    // Auto-Select buttons
+    dom.autoSelect15.addEventListener('click', () => autoSelectTransitionReel(15));
+    dom.autoSelect30.addEventListener('click', () => autoSelectTransitionReel(30));
+
+    // Export mode toggle
+    dom.exportModeReel.addEventListener('click', () => setExportMode('reel'));
+    dom.exportModeRaw.addEventListener('click', () => setExportMode('raw'));
+
+    // Export buttons
+    dom.exportSelectedBtn.addEventListener('click', exportSelected);
+    dom.exportAllBtn.addEventListener('click', exportAll);
+
+    // Cancel export
+    dom.progressCancelBtn.addEventListener('click', cancelCurrentExport);
+
+    // Video player time update → playhead
+    dom.videoPlayer.addEventListener('timeupdate', updatePlayhead);
+
+    // Timeline click → seek
+    dom.timelineWrapper.addEventListener('click', (e) => {
+        if (!state.analysisResults) return;
+        const rect = dom.timelineWrapper.getBoundingClientRect();
+        const pct = (e.clientX - rect.left) / rect.width;
+        const duration = state.analysisResults.audio.duration || dom.videoPlayer.duration;
+        dom.videoPlayer.currentTime = pct * duration;
+    });
+}
+
+// ============================================
+// VIEW SWITCHING
+// ============================================
+function switchView(view) {
+    dom.libraryView.style.display = 'none';
+    dom.analysisView.classList.remove('active');
+    switch (view) {
+        case 'library':
+            dom.libraryView.style.display = 'block';
+            loadVideos();
+            break;
+        case 'analysis':
+            dom.analysisView.classList.add('active');
+            break;
+    }
+}
+
+// ============================================
+// VIDEO LIBRARY
+// ============================================
+async function loadVideos() {
+    try {
+        const resp = await fetch('/api/videos');
+        const data = await resp.json();
+        state.videos = data.videos || [];
+        dom.videoCount.textContent = state.videos.length;
+        renderVideoGrid();
+    } catch (err) {
+        console.error('Fehler beim Laden der Videos:', err);
+    }
+}
+
+async function createGlobalBestOf(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s Montage aus den besten Momenten ALLER Videos erstellen?`)) return;
+
+    showProgress('GLOBAL BEST-OF WIRD ERSTELLT...', 'DIE BESTEN MOMENTE WERDEN GESAMMELT...');
+
+    try {
+        const resp = await fetch('/api/export/global_best_of', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                duration: duration,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('GLOBAL BEST-OF FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createHighlightArc(duration) {
+    if (!confirm(`Möchtest du ein ${duration}s Highlight-Arc Reel (mit Energie-Aufbau) aus ALLEN Videos erstellen?`)) return;
+
+    showProgress('HIGHLIGHT ARC WIRD ERSTELLT...', 'CLIPS WERDEN NACH ENERGIE SORTIERT...');
+
+    try {
+        const resp = await fetch('/api/export/highlight_reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                duration: duration,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('HIGHLIGHT ARC FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createChronologicalReel(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange chronologische Montage aus ALLEN Videos erstellen?`)) return;
+
+    showProgress('CHRONOLOGISCHES REEL WIRD ERSTELLT...', 'CLIPS WERDEN NACH AUFNAHMEDATUM SORTIERT...');
+
+    try {
+        const resp = await fetch('/api/export/chronological_reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                duration: duration,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('CHRONO REEL FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createRandomReel(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange Montage aus ZUFÄLLIGEN Clips erstellen?`)) return;
+
+    showProgress('ZUFÄLLIGES REEL WIRD ERSTELLT...', 'CLIPS WERDEN DURCHGEMISCHT...');
+
+    try {
+        const resp = await fetch('/api/export/random_reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                duration: duration,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('RANDOM REEL FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createSeamlessLoopReel(duration) {
+    if (!confirm(`Möchtest du einen perfekten Seamless Loop (${duration}s) aus dem besten Clip erstellen?`)) return;
+
+    showProgress('SEAMLESS LOOP WIRD ERSTELLT...', 'SUCHE DEN BESTEN CLIP FÜR DEN LOOP...');
+
+    try {
+        const resp = await fetch('/api/export/seamless_loop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                duration: duration,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('LOOP REEL FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createBestOfSet() {
+    if (!confirm(
+        'SMART PICK – 30 Clips als Einzeldateien\n\n' +
+        'Intelligente Mischung aus Moment-Typen (DROP / CROWD / STROBE / CALM …),\n' +
+        'verschiedenen Videos und Clip-Längen – frisch bei jedem Lauf, ohne Dubletten.\n' +
+        'Dateinamen zeigen Typ + Tier (z. B. 01_DROP_S_…) für CapCut/Resolve.\n\n' +
+        'Perfekt für den manuellen Schnitt. Fortfahren?'
+    )) return;
+
+    showProgress('BEST-OF SET WIRD EXPORTIERT...', 'DIE BESTEN EINZELCLIPS WERDEN VORBEREITET...');
+
+    try {
+        const resp = await fetch('/api/export/best_of_set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                count: 30,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 30);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('SET-EXPORT FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createAdaptiveReel(duration) {
+    if (!confirm(
+        `ADAPTIVE ARC – ${duration}s\n\n` +
+        'Clip-Längen passen sich automatisch an den Energie-Score an:\n' +
+        '  Niedrige Energie  →  lange Clips  (ruhiger Einstieg)\n' +
+        '  Mittlere Energie  →  mittlere Cuts\n' +
+        '  Hohe Energie      →  kurze Schnitte  (Climax)\n\n' +
+        'Reihenfolge: Calm → Climax Arc aus allen analysierten Videos.\nFortfahren?'
+    )) return;
+
+    showProgress('ADAPTIVE ARC WIRD ERSTELLT...', 'ENERGIE-KURVE WIRD BERECHNET...');
+
+    try {
+        const resp = await fetch('/api/export/adaptive_reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode, target_bpm: getTargetBpm() }),
+        });
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            if (data.clips != null) {
+                const range = data.beat_range ? ` · ${data.beat_range[0]}–${data.beat_range[1]} BEATS` : '';
+                updateProgress(0, `${data.clips} CLIPS${range} · ~${data.actual_duration}S`);
+            }
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('ADAPTIVE ARC FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createBpmLockedReel(duration) {
+    if (!confirm(
+        `BPM-LOCKED REEL – ${duration}s\n\n` +
+        'Alle Schnittpunkte liegen exakt auf dem Beat.\n' +
+        'Clip-Längen werden auf Bar-Vielfache (4 Beats) gerundet.\n\n' +
+        'Clips aus allen analysierten Videos werden verwendet.\nFortfahren?'
+    )) return;
+
+    showProgress('BPM-LOCKED REEL WIRD ERSTELLT...', 'BEAT-GRID WIRD BERECHNET...');
+
+    try {
+        const resp = await fetch('/api/export/bpm_locked_reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode, target_bpm: getTargetBpm() }),
+        });
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            if (data.clips != null) {
+                updateProgress(0, `${data.clips} CLIPS / ${data.total_bars} BARS / ~${data.actual_duration}S`);
+            }
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('BPM-LOCKED REEL FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createStrobeMontage(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange Strobe Montage (harte Schnitte auf den Beat) erstellen?`)) return;
+
+    showProgress('STROBE MONTAGE WIRD ERSTELLT...', 'BEAT-SAMPLES WERDEN EXTRAHIERT...');
+
+    try {
+        const resp = await fetch('/api/export/strobe_montage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode, target_bpm: getTargetBpm() }),
+        });
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('STROBE MONTAGE FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createCrowdCulture(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange Crowd & Culture Montage (Jubel und Crowd-Reaktionen) erstellen?`)) return;
+
+    showProgress('CROWD & CULTURE WIRD ERSTELLT...', 'CROWD-REAKTIONEN WERDEN GESAMMELT...');
+
+    try {
+        const resp = await fetch('/api/export/crowd_culture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode, target_bpm: getTargetBpm() }),
+        });
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('CROWD & CULTURE FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createStoryArc() {
+    if (!confirm(
+        'STORY ARC RENDER\n\n' +
+        '1. HOOK + BUILD-UP  –  Spannung aufbauen\n' +
+        '2. DROP             –  Der Moment der Entladung\n' +
+        '3. CROWD REACTION   –  Unmittelbare Reaktion\n' +
+        '4. OUTRO            –  Letzter Eindruck\n\n' +
+        'Clip-Auswahl erfolgt automatisch aus allen analysierten Videos.\nFortfahren?'
+    )) return;
+
+    showProgress('STORY ARC WIRD GERENDERT...', 'SEGMENTE WERDEN ANALYSIERT...');
+
+    try {
+        const resp = await fetch('/api/export/story_arc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: state.exportMode, target_bpm: getTargetBpm() }),
+        });
+        const data = await resp.json();
+
+        if (data.status === 'started' && data.job_id) {
+            // Zeige die erkannten Segmente im Progress-Dialog
+            if (data.segments?.length) {
+                updateProgress(0, 'SEGMENTE: ' + data.segments.join(' → '));
+            }
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('STORY ARC FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createDropArchitecture(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange Drop Architecture Montage (exakt 3s vor dem größten Drop) erstellen?`)) return;
+    showProgress('DROP ARCHITECTURE WIRD ERSTELLT...', 'ANALYSEN WERDEN DURCHSUCHT...');
+    try {
+        const resp = await fetch('/api/export/drop_architecture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode }),
+        });
+        const data = await resp.json();
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('DROP ARCHITECTURE FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function createTransitionMastery(duration) {
+    if (!confirm(`Möchtest du eine ${duration}s lange Transition Mastery (ruhige Phase) erstellen?`)) return;
+    showProgress('TRANSITION MASTERY WIRD ERSTELLT...', 'ANALYSEN WERDEN DURCHSUCHT...');
+    try {
+        const resp = await fetch('/api/export/transition_mastery', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration, mode: state.exportMode }),
+        });
+        const data = await resp.json();
+        if (data.status === 'started' && data.job_id) {
+            pollExportStatus(data.job_id, 1);
+        } else {
+            hideProgress();
+            showToast(`FEHLER: ${data.error || 'UNBEKANNTER FEHLER'}`, 'error');
+        }
+    } catch (err) {
+        hideProgress();
+        showToast('TRANSITION MASTERY FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+async function resetUsageLog() {
+    if (!confirm('ROTATION RESET: Alle "Featured"-Zähler werden auf 0 gesetzt. Videos werden danach wieder gleichwertig ausgewählt.')) return;
+    try {
+        const resp = await fetch('/api/reset_usage_log', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            showToast('ROTATION RESET – ALLE VIDEOS GLEICHWERTIG', 'success');
+            loadVideos();
+        }
+    } catch (err) {
+        showToast('RESET FEHLGESCHLAGEN', 'error');
+        console.error(err);
+    }
+}
+
+// ============================================
+// BPM TEMPO-MATCH
+// ============================================
+function onBpmToggle() {
+    const on = dom.bpmMatchToggle.checked;
+    dom.bpmSlider.disabled = !on;
+    dom.bpmControl.classList.toggle('active', on);
+    updateBpmLabel();
+}
+
+function updateBpmLabel() {
+    dom.bpmValue.innerHTML = dom.bpmMatchToggle.checked
+        ? `${dom.bpmSlider.value}<em>BPM</em>`
+        : 'OFF';
+}
+
+// Aktuelle Ziel-BPM (oder null wenn Tempo-Match aus ist) – wird allen Export-Requests mitgegeben.
+function getTargetBpm() {
+    return dom.bpmMatchToggle.checked ? parseInt(dom.bpmSlider.value, 10) : null;
+}
+
+// ============================================
+// FUNCTION INFO TOOLTIPS (Hover mit Verzögerung)
+// ============================================
+const TOOLTIP_DELAY = 500; // ms Verweildauer, bevor das Info-Popup erscheint
+
+function initFunctionTooltips() {
+    const tip = document.createElement('div');
+    tip.id = 'funcTooltip';
+    tip.innerHTML = '<div class="func-tooltip-title"></div><div class="func-tooltip-body"></div>';
+    document.body.appendChild(tip);
+    const tipTitle = tip.querySelector('.func-tooltip-title');
+    const tipBody = tip.querySelector('.func-tooltip-body');
+
+    let timer = null;
+    const hide = () => {
+        clearTimeout(timer);
+        tip.classList.remove('visible');
+        tip.style.left = '-9999px';
+    };
+
+    document.querySelectorAll('.command-row[data-info]').forEach(row => {
+        row.addEventListener('mouseenter', () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+                const mark = row.querySelector('.command-cat-mark');
+                tipTitle.textContent = row.querySelector('.command-name')?.textContent.trim() || 'INFO';
+                tipBody.textContent = row.getAttribute('data-info') || '';
+                tip.style.setProperty('--accent', mark ? getComputedStyle(mark).backgroundColor : '#ffffff');
+                tip.classList.add('visible');
+                positionTooltip(tip, row);
+            }, TOOLTIP_DELAY);
+        });
+        row.addEventListener('mouseleave', hide);
+    });
+
+    // Beim Scrollen/Resize ausblenden, sonst klebt das Popup an der alten Stelle
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+}
+
+function positionTooltip(tip, row) {
+    const r = row.getBoundingClientRect();
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    const margin = 10;
+
+    // Bevorzugt oberhalb der Zeile, sonst darunter
+    let top = r.top - th - margin;
+    if (top < margin) top = r.bottom + margin;
+
+    // Linksbündig zur Zeile, aber im Viewport halten
+    let left = Math.min(r.left, window.innerWidth - tw - margin);
+    if (left < margin) left = margin;
+
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+}
+
+function renderVideoCard(video) {
+    const analyzedClass = video.is_analyzed ? 'analyzed' : '';
+    const featuredClass = video.usage_count > 0 ? 'featured' : '';
+
+    return `
+        <div class="video-card ${analyzedClass} ${featuredClass}"
+             onclick="openVideo('${escapeHtml(video.filename)}')"
+             title="${escapeHtml(video.filename)}">
+            <div class="video-thumb">
+                ${video.has_thumbnail
+                    ? `<img src="/api/thumbnail/${encodeURIComponent(video.filename)}" alt="${escapeHtml(video.filename)}" loading="lazy">`
+                    : `<span class="placeholder-icon">🎬</span>`
+                }
+                <div class="play-overlay">
+                    <div class="play-btn">▶</div>
+                </div>
+                ${video.usage_count > 0 ? `<div class="usage-badge">✨ FEATURED ${video.usage_count}X</div>` : ''}
+            </div>
+            <div class="video-info">
+                <div class="video-name">${escapeHtml(video.filename)}</div>
+                <div class="video-meta">
+                    <span>${video.size_mb} MB</span>
+                    ${video.is_analyzed ? '<span style="color: var(--acid-green)">// READY</span>' : '<span style="color: var(--muted-grey)">// PROCESSING...</span>'}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderVideoGrid() {
+    if (state.videos.length === 0) {
+        dom.videoGrid.style.display = 'none';
+        dom.emptyLibrary.style.display = 'block';
+        return;
+    }
+
+    dom.videoGrid.style.display = 'grid';
+    dom.emptyLibrary.style.display = 'none';
+
+    dom.videoGrid.innerHTML = state.videos.map(renderVideoCard).join('');
+}
+
+// ============================================
+// OPEN VIDEO / PRODUCTION VIEW
+// ============================================
+async function openVideo(filename) {
+    state.currentVideo = filename;
+    state.analysisResults = null;
+    state.selectedClips.clear();
+    state.suggestedClips = [];
+
+    // Update UI
+    dom.analysisVideoName.textContent = filename.toUpperCase();
+    dom.videoSource.src = `/api/video/${encodeURIComponent(filename)}`;
+    dom.videoPlayer.load();
+
+    // Reset watermark bar
+    state.wmResult = null;
+    dom.wmResult.textContent = 'CAPCUT WATERMARK CHECK';
+    dom.wmResult.className = 'wm-result';
+    dom.wmRemoveBtn.style.visibility = 'hidden';
+    dom.wmScanBtn.textContent = 'WM SCAN';
+    dom.wmScanBtn.disabled = false;
+
+    // Hide analysis panels initially
+    dom.statsRow.style.display = 'none';
+    dom.timelineSection.style.display = 'none';
+    dom.clipsPanel.style.display = 'none';
+
+    // Switch to analysis view
+    switchView('analysis');
+
+    // 1. Check if results already exist
+    try {
+        const resp = await fetch(`/api/results/${encodeURIComponent(filename)}`);
+        if (resp.ok) {
+            const results = await resp.json();
+            if (!results.error) {
+                state.analysisResults = results;
+                displayResults(results);
+                return;
+            }
+        }
+    } catch (err) {}
+
+    // 2. Start analysis actively since we want to view it now
+    try {
+        const startResp = await fetch(`/api/analyze/${encodeURIComponent(filename)}`, { method: 'POST' });
+        const startData = await startResp.json();
+        // If it was already running or just started, poll for it but SHOW the overlay
+        pollAnalysisStatus(filename, false);
+    } catch (err) {
+        console.error("Failed to start analysis", err);
+    }
+}
+
+// ============================================
+// ANALYSIS POLLING
+// ============================================
+function pollAnalysisStatus(filename, silent = false) {
+    if (state.pollInterval) clearInterval(state.pollInterval);
+
+    state.pollInterval = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/status/${encodeURIComponent(filename)}`);
+            const status = await resp.json();
+
+            if (status.status === 'running') {
+                if (!silent) {
+                    showProgress('VIDEO WIRD ANALYSIERT...', `FORTSCHRITT: ${status.progress}%`);
+                    updateProgress(status.progress, status.message);
+                } else {
+                    // Falls wir in der PRODUKTION Ansicht sind und auf das Video warten
+                    dom.analysisVideoName.textContent = `${filename.toUpperCase()} (ANALYSING ${status.progress}%)`;
+                }
+            }
+
+            if (status.status === 'completed') {
+                clearInterval(state.pollInterval);
+                state.pollInterval = null;
+                if (!silent) hideProgress();
+                
+                showToast('ANALYSE ABGESCHLOSSEN! 🎉', 'success');
+                
+                // Erneut versuchen die Ergebnisse zu laden
+                const resResp = await fetch(`/api/results/${encodeURIComponent(filename)}`);
+                if (resResp.ok) {
+                    const results = await resResp.json();
+                    state.analysisResults = results;
+                    displayResults(results);
+                }
+            } else if (status.status === 'error') {
+                clearInterval(state.pollInterval);
+                state.pollInterval = null;
+                if (!silent) hideProgress();
+                showToast(`FEHLER BEI DER ANALYSE: ${status.message}`, 'error');
+            }
+        } catch (err) {
+            console.error('Analyse-Poll Fehler:', err);
+        }
+    }, 2000);
+}
+
+// ============================================
+// DISPLAY RESULTS
+// ============================================
+function displayResults(results) {
+    // Stats
+    dom.statsRow.style.display = 'grid';
+    dom.statTempo.textContent = Math.round(results.audio?.tempo || 0);
+    dom.statDuration.textContent = formatDuration(results.audio?.duration || 0);
+    dom.statHighlights.textContent = results.highlights?.length || 0;
+    dom.statDrops.textContent = results.audio?.bass_drops?.length || 0;
+    dom.statClips.textContent = results.suggested_clips?.length || 0;
+
+    // Timeline
+    dom.timelineSection.style.display = 'block';
+    drawTimeline(results);
+
+    // Time labels
+    const duration = results.audio?.duration || 0;
+    dom.timeStart.textContent = '0:00';
+    dom.timeMid.textContent = formatDuration(duration / 2);
+    dom.timeEnd.textContent = formatDuration(duration);
+
+    // Clips
+    state.suggestedClips = results.suggested_clips || [];
+    dom.clipsPanel.style.display = 'flex';
+    dom.clipCountBadge.textContent = state.suggestedClips.length;
+    renderClipsList();
+}
+
+// ============================================
+// TIMELINE CANVAS
+// ============================================
+function drawTimeline(results) {
+    const canvas = dom.timelineCanvas;
+    const wrapper = dom.timelineWrapper;
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = wrapper.clientWidth * dpr;
+    canvas.height = wrapper.clientHeight * dpr;
+    canvas.style.width = wrapper.clientWidth + 'px';
+    canvas.style.height = wrapper.clientHeight + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const w = wrapper.clientWidth;
+    const h = wrapper.clientHeight;
+    const timeline = results.timeline || [];
+    if (timeline.length === 0) return;
+
+    const duration = results.audio?.duration || timeline[timeline.length - 1].time;
+
+    // Background
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+
+    // Grid lines
+    ctx.strokeStyle = '#1c1c1c';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) {
+        const x = (i / 10) * w;
+        ctx.beginPath();
+        ctx.moveTo(x, 0); ctx.lineTo(x, h);
+        ctx.stroke();
+    }
+
+    // Highlight regions
+    const highlights = results.highlights || [];
+    highlights.forEach(hl => {
+        const x1 = (hl.start / duration) * w;
+        const x2 = (hl.end / duration) * w;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.fillRect(x1, 0, x2 - x1, h);
+    });
+
+    // Draw channels
+    const channels = [
+        { key: 'audio_energy', color: '#00f2ff', alpha: 0.8 },
+        { key: 'bass_drops',   color: '#ff00e5', alpha: 0.6 },
+        { key: 'motion',       color: '#ccff00', alpha: 0.6 },
+    ];
+
+    channels.forEach(ch => {
+        ctx.beginPath();
+        ctx.strokeStyle = ch.color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = ch.alpha;
+
+        const baseY = h * 0.95;
+        timeline.forEach((point, i) => {
+            const x = (point.time / duration) * w;
+            const val = point.components?.[ch.key] || 0;
+            const y = baseY - val * h * 0.9;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    });
+
+    // Overall score
+    ctx.beginPath();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 1;
+    const baseY = h * 0.95;
+    timeline.forEach((point, i) => {
+        const x = (point.time / duration) * w;
+        const y = baseY - (point.score || 0) * h * 0.9;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+}
+
+// ============================================
+// PLAYHEAD
+// ============================================
+function updatePlayhead() {
+    if (!state.analysisResults) return;
+    const duration = dom.videoPlayer.duration || 1;
+    const currentTime = dom.videoPlayer.currentTime;
+    const pct = (currentTime / duration) * 100;
+    dom.playhead.style.left = `${pct}%`;
+}
+
+// ============================================
+// CLIPS LIST
+// ============================================
+function getQualityTier(score) {
+    if (score >= 0.90) return { label: 'ELITE (S)', class: 'tier-s', color: '#00f2ff' };
+    if (score >= 0.75) return { label: 'GOLD (A)', class: 'tier-a', color: '#ffffff' };
+    if (score >= 0.50) return { label: 'GREAT (B)', class: 'tier-b', color: '#333333' };
+    return { label: 'GOOD (C)', class: 'tier-c', color: '#1c1c1c' };
+}
+
+function renderClipsList() {
+    let clips = state.suggestedClips;
+    if (state.currentPresetFilter !== 'all') {
+        clips = clips.filter(c => c.preset === state.currentPresetFilter);
+    }
+
+    // Sort by score descending (highest rated first)
+    clips.sort((a, b) => b.score - a.score);
+
+    if (clips.length === 0) {
+        dom.clipsList.innerHTML = `<div class="empty-state"><p>// NO CLIPS FOUND</p></div>`;
+        return;
+    }
+
+    dom.clipsList.innerHTML = clips.map((clip, idx) => {
+        const scorePercent = Math.round(clip.score * 100);
+        const isSelected = state.selectedClips.has(clipId(clip));
+        const tier = getQualityTier(clip.score);
+
+        return `
+            <div class="clip-card ${isSelected ? 'selected' : ''}"
+                 onclick="toggleClipSelection('${clipId(clip)}')"
+                 data-clip-id="${clipId(clip)}">
+                <div class="clip-tier-badge ${tier.class}">${tier.label}</div>
+                <div class="clip-details">
+                    <div class="clip-time">${formatTime(clip.start)} – ${formatTime(clip.end)}</div>
+                    <div class="clip-duration-tag">${clip.preset_label.toUpperCase()} · ${clip.duration}S · SCORE: ${scorePercent}</div>
+                </div>
+                <div class="clip-actions">
+                    <button class="clip-action-btn" onclick="event.stopPropagation(); previewClip(${clip.start}, ${clip.end})" title="PREVIEW">▶</button>
+                    ${clip.duration >= 2 ? `<button class="clip-action-btn" onclick="event.stopPropagation(); exportSingleLoopClip(${clip.start}, ${clip.end})" title="SEAMLESS LOOP EXPORT">♾️</button>` : ''}
+                    <button class="clip-action-btn" onclick="event.stopPropagation(); exportSingleClip(${clip.start}, ${clip.end})" title="EXPORT">📤</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function clipId(clip) {
+    return `${clip.start}-${clip.end}-${clip.preset}`;
+}
+
+function toggleClipSelection(id) {
+    if (state.selectedClips.has(id)) {
+        state.selectedClips.delete(id);
+    } else {
+        state.selectedClips.add(id);
+    }
+    renderClipsList();
+}
+
+function autoSelectTransitionReel(targetDuration) {
+    if (state.suggestedClips.length === 0) return;
+    state.selectedClips.clear();
+    let pool = state.suggestedClips.filter(c => c.duration <= 3);
+    pool.sort((a, b) => b.score - a.score);
+    let selected = [];
+    let currentTotal = 0;
+
+    for (const clip of pool) {
+        if (currentTotal >= targetDuration - 0.5) break;
+
+        const wouldTotal = currentTotal + clip.duration;
+        const remaining  = targetDuration - currentTotal;
+
+        // Clip überspringen wenn:
+        // a) er zu stark überschießt (>+1s) UND die verbleibende Lücke
+        //    kleiner als halbe Clip-Dauer ist (Clip würde kaum was füllen)
+        if (wouldTotal > targetDuration + 1 && remaining < clip.duration * 0.5) continue;
+        // Hartes Limit: nie mehr als eine volle Clip-Länge über das Ziel
+        if (wouldTotal > targetDuration + clip.duration) continue;
+
+        const overlaps = selected.some(s => clip.start < s.end && clip.end > s.start);
+        if (!overlaps) {
+            selected.push(clip);
+            currentTotal += clip.duration;
+            state.selectedClips.add(clipId(clip));
+        }
+    }
+
+    renderClipsList();
+    showToast(`${selected.length} CLIPS SELECTED (${currentTotal.toFixed(1)}s)`, 'success');
+}
+
+// ============================================
+// PREVIEW
+// ============================================
+function previewClip(start, end) {
+    dom.videoPlayer.currentTime = start;
+    dom.videoPlayer.play();
+    const checkEnd = () => {
+        if (dom.videoPlayer.currentTime >= end) {
+            dom.videoPlayer.pause();
+            dom.videoPlayer.removeEventListener('timeupdate', checkEnd);
+        }
+    };
+    dom.videoPlayer.addEventListener('timeupdate', checkEnd);
+}
+
+// ============================================
+// EXPORT
+// ============================================
+function setExportMode(mode) {
+    state.exportMode = mode;
+    dom.exportModeReel.classList.toggle('active', mode === 'reel');
+    dom.exportModeRaw.classList.toggle('active', mode === 'raw');
+}
+
+async function exportSingleClip(start, end) {
+    if (!state.currentVideo) return;
+    showToast('EXPORT STARTED', 'info');
+    try {
+        const resp = await fetch('/api/export/single', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: state.currentVideo, start: start, end: end,
+                mode: state.exportMode, fade: dom.fadeToggle.checked,
+                target_bpm: getTargetBpm(),
+            })
+        });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            showToast('CLIP EXPORTED', 'success');
+            // Auto-download
+            if (data.export && data.export.filename) {
+                // Die API speichert nun alle normalen Clips unter single_downloads
+                const fileUrl = `/api/output/single_downloads/${encodeURIComponent(data.export.filename)}`;
+                const a = document.createElement('a');
+                a.href = fileUrl;
+                a.download = data.export.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        }
+    } catch (err) { console.error(err); }
+}
+
+async function exportSingleLoopClip(start, end) {
+    if (!state.currentVideo) return;
+    showToast('LOOP EXPORT STARTED', 'info');
+    try {
+        const resp = await fetch('/api/export/single_loop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: state.currentVideo, start: start, end: end,
+                mode: state.exportMode,
+                target_bpm: getTargetBpm()
+            })
+        });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            showToast('LOOP EXPORTED', 'success');
+            // Auto-download
+            if (data.export && data.export.filename) {
+                const fileUrl = `/api/output/single_downloads/${encodeURIComponent(data.export.filename)}`;
+                const a = document.createElement('a');
+                a.href = fileUrl;
+                a.download = data.export.filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        } else {
+            showToast(`ERROR: ${data.error}`, 'error');
+        }
+    } catch (err) { console.error(err); }
+}
+
+async function exportSelected() {
+    const clips = state.suggestedClips.filter(c => state.selectedClips.has(clipId(c)));
+    if (clips.length > 0) await batchExport(clips);
+}
+
+async function exportAll() {
+    let clips = state.suggestedClips;
+    if (state.currentPresetFilter !== 'all') {
+        clips = clips.filter(c => c.preset === state.currentPresetFilter);
+    }
+    if (clips.length > 0) await batchExport(clips);
+}
+
+async function batchExport(clips) {
+    if (!state.currentVideo) return;
+    showProgress('BATCH EXPORT...', `${clips.length} CLIPS IN QUEUE...`);
+    try {
+        const resp = await fetch('/api/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: state.currentVideo,
+                clips: clips.map(c => ({ start: c.start, end: c.end })),
+                mode: state.exportMode, fade: dom.fadeToggle.checked,
+                target_bpm: getTargetBpm(),
+            })
+        });
+        const data = await resp.json();
+        if (data.job_id) pollExportStatus(data.job_id, clips.length);
+    } catch (err) { hideProgress(); console.error(err); }
+}
+
+function pollExportStatus(jobId, totalClips) {
+    // Job-ID merken + Cancel-Button zeigen
+    state.activeExportJobId = jobId;
+    dom.progressCancelBtn.style.display = 'block';
+
+    const interval = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/export/status/${encodeURIComponent(jobId)}`);
+            const status = await resp.json();
+            updateProgress(status.progress || 0, status.message?.toUpperCase());
+
+            if (status.status === 'completed') {
+                clearInterval(interval);
+                hideProgress();
+                showToast('EXPORT COMPLETE', 'success');
+            } else if (status.status === 'cancelled') {
+                clearInterval(interval);
+                hideProgress();
+                showToast('EXPORT ABGEBROCHEN', 'info');
+            } else if (status.status === 'error') {
+                clearInterval(interval);
+                hideProgress();
+                showToast('EXPORT FAILED', 'error');
+            }
+        } catch (err) { console.error(err); }
+    }, 1500);
+}
+
+async function cancelCurrentExport() {
+    const jobId = state.activeExportJobId;
+    if (!jobId) return;
+
+    if (!confirm(
+        'EXPORT ABBRECHEN?\n\n' +
+        'Das unfertige Datenfragment wird unwiderruflich gelöscht.\n' +
+        'Dieser Vorgang kann nicht rückgängig gemacht werden.'
+    )) return;
+
+    try {
+        const resp = await fetch(`/api/export/cancel/${encodeURIComponent(jobId)}`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+        hideProgress();
+        const msg = data.file_deleted
+            ? 'ABGEBROCHEN – FRAGMENT GELÖSCHT'
+            : 'ABGEBROCHEN';
+        showToast(msg, 'info');
+    } catch (err) {
+        hideProgress();
+        console.error('Cancel fehlgeschlagen:', err);
+    }
+}
+
+
+// ============================================
+// WATERMARK DETECTION & REMOVAL
+// ============================================
+async function runWatermarkScan() {
+    if (!state.currentVideo) return;
+    dom.wmScanBtn.textContent = 'SCANNING...';
+    dom.wmScanBtn.disabled = true;
+    dom.wmResult.textContent = '...';
+    dom.wmResult.className = 'wm-result';
+    dom.wmRemoveBtn.style.visibility = 'hidden';
+
+    try {
+        const resp = await fetch(`/api/watermark/detect/${encodeURIComponent(state.currentVideo)}`, {
+            method: 'POST'
+        });
+        const data = await resp.json();
+        state.wmResult = data;
+
+        if (data.error) {
+            dom.wmResult.textContent = `ERROR: ${data.error}`;
+        } else if (data.detected) {
+            let msg = 'WATERMARK DETECTED:';
+            if (data.trim_start > 0) msg += `  START +${data.trim_start}s`;
+            if (data.trim_end   > 0) msg += `  END -${data.trim_end}s`;
+            dom.wmResult.textContent = msg;
+            dom.wmResult.className = 'wm-result wm-result--found';
+            dom.wmRemoveBtn.style.visibility = 'visible';
+        } else {
+            dom.wmResult.textContent = 'NO WATERMARK DETECTED';
+            dom.wmResult.className = 'wm-result wm-result--clean';
+        }
+    } catch (err) {
+        dom.wmResult.textContent = 'SCAN ERROR';
+        console.error(err);
+    } finally {
+        dom.wmScanBtn.textContent = 'WM SCAN';
+        dom.wmScanBtn.disabled = false;
+    }
+}
+
+async function removeWatermark() {
+    const d = state.wmResult;
+    if (!d || !d.detected) return;
+    showProgress('WATERMARK REMOVAL...', 'TRIMMING VIDEO...');
+    try {
+        const resp = await fetch(`/api/watermark/remove/${encodeURIComponent(state.currentVideo)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                trim_start: d.trim_start,
+                trim_end:   d.trim_end,
+                duration:   d.duration,
+            }),
+        });
+        const data = await resp.json();
+        if (data.job_id) pollExportStatus(data.job_id, 1);
+        else { hideProgress(); showToast('ERROR', 'error'); }
+    } catch (err) {
+        hideProgress();
+        console.error(err);
+    }
+}
+
+async function batchCleanWatermarks() {
+    if (!confirm('Alle exportierten Clips auf CapCut Watermarks scannen und bereinigen?')) return;
+    showProgress('WM CLEANUP RUNNING...', 'SCANNING EXPORTS...');
+    try {
+        const resp = await fetch('/api/watermark/batch_clean', { method: 'POST' });
+        const data = await resp.json();
+        if (data.job_id) pollExportStatus(data.job_id, 1);
+        else { hideProgress(); showToast('ERROR', 'error'); }
+    } catch (err) {
+        hideProgress();
+        console.error(err);
+    }
+}
+
+// ============================================
+// OVERLAYS
+// ============================================
+function showProgress(title, message) {
+    dom.progressTitle.textContent = title.toUpperCase();
+    dom.progressMessage.textContent = message.toUpperCase();
+    dom.progressBarFill.style.width = '0%';
+    dom.progressPercentage.textContent = '0%';
+    dom.progressOverlay.classList.add('active');
+}
+
+function updateProgress(percent, message) {
+    dom.progressBarFill.style.width = `${percent}%`;
+    dom.progressPercentage.textContent = `${percent}%`;
+    if (message) dom.progressMessage.textContent = message.toUpperCase();
+}
+
+function hideProgress() {
+    dom.progressOverlay.classList.remove('active');
+    dom.progressCancelBtn.style.display = 'none';
+    state.activeExportJobId = null;
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<span>// ${escapeHtml(message.toUpperCase())}</span>`;
+    dom.toastContainer.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// ============================================
+// UTILS
+// ============================================
+function formatDuration(s) {
+    if (!s || isNaN(s)) return '0:00';
+    return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;
+}
+function formatTime(s) { return formatDuration(s); }
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+window.addEventListener('resize', () => {
+    if (state.analysisResults) drawTimeline(state.analysisResults);
+});
+
+```
