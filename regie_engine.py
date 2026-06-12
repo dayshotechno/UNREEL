@@ -221,7 +221,7 @@ class ClaudeProvider:
         system_prompt: str,
         user_data: str,
         temperature: float = 0.4,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> str:
         if not self._api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")
@@ -277,7 +277,7 @@ class GeminiProvider:
         system_prompt: str,
         user_data: str,
         temperature: float = 0.4,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> str:
         if not self._api_key:
             raise ValueError("GEMINI_API_KEY not set")
@@ -339,7 +339,7 @@ class DeepSeekProvider:
         system_prompt: str,
         user_data: str,
         temperature: float = 0.4,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> str:
         if not self._api_key:
             raise ValueError("DEEPSEEK_API_KEY not set")
