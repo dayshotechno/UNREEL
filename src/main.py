@@ -130,6 +130,24 @@ def phase_1_sync(video_paths: list[Path], music_path: Path | None = None) -> dic
     logger.info(f"  Kicks: {len(percussion.kicks)}")
     logger.info(f"  Snares: {len(percussion.snares)}")
 
+    # Optional: Musikdatei analysieren (Bass, Subbass, Kicks, Transienten, Drops)
+    if music_path and music_path.exists() and music_path.suffix.lower() in _AUDIO_EXTENSIONS:
+        logger.info(f"\nMusic file for analysis: {music_path.name}")
+        try:
+            from analyzer.audio_analyzer import analyze_music_file
+            music_analysis = analyze_music_file(str(music_path))
+            result["music_analysis"] = music_analysis
+            logger.info(f"  Music analysis complete: {len(music_analysis['kick_times'])} kicks, "
+                        f"{len(music_analysis['transient_times'])} transients, "
+                        f"{len(music_analysis['drop_times'])} drops detected")
+        except Exception as e:
+            logger.warning(f"Music analysis failed: {e}")
+            result["music_analysis"] = {"error": str(e)}
+    elif music_path:
+        logger.warning(f"Music file {music_path} not found or unsupported – skipping music analysis")
+    else:
+        result["music_analysis"] = None  # kein Music-Track angegeben
+
     return result
 
 
@@ -183,7 +201,8 @@ def _find_visual_twin(sig: list, known_sigs: dict[str, list]) -> str | None:
     return None
 
 
-def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_cb=None) -> dict:
+def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_cb=None,
+                    music_path: Path | None = None) -> dict:
     """Phase 2: Video Analysis + Vision Tagging.
 
     Resumable: clips already present in `existing` are skipped, and `save_cb(result)`
@@ -1164,11 +1183,21 @@ def run_pipeline(
             all_results["phase_2"] = partial
             _save_progress()
 
-        all_results["phase_2"] = phase_2_analyze(video_paths, existing=prior_p2, save_cb=_save_phase2)
+        # music_path aus dem CLI-Argument übergeben
+        phase2_music = music if music and Path(music).exists() else None
+        all_results["phase_2"] = phase_2_analyze(video_paths, existing=prior_p2, save_cb=_save_phase2,
+                                                  music_path=phase2_music)
         _save_progress()
 
     # Phase 3: AI Regie (multi-provider)
     if phases is None or "regie" in phases:
+        # Füge Musik-Analyse-Daten zum Context hinzu, falls vorhanden
+        p2 = all_results.get("phase_2") or {}
+        music_analysis = p2.get("music_analysis") if isinstance(p2, dict) else None
+        if music_analysis and "error" not in music_analysis:
+            all_results = {**all_results, "music_analysis": music_analysis}
+            logger.info(f"  Music analysis available: {len(music_analysis.get('drop_times', []))} drops, "
+                        f"{len(music_analysis.get('kick_times', []))} kicks")
         all_results["phase_3"] = phase_3_regie(
             all_results, preset, duration,
             provider=provider,

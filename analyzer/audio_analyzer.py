@@ -205,6 +205,116 @@ def _detect_bass_drops(y, sr, energy_times):
     return bass_drops
 
 
+def analyze_music_file(music_path: str) -> dict:
+    """
+    Analysiert eine eigenständige Audiodatei (mp3/wav/flac/aif/aiff)
+    auf Bass, Subbass, Kicks, Transienten und Drops.
+    
+    Returns:
+        dict with:
+        - subbass_energy: Liste von (time, energy) für 20-60 Hz
+        - bass_energy: Liste von (time, energy) für 60-250 Hz
+        - kick_times: Liste von Zeitpunkten in Sekunden (Kick-Onsets)
+        - transient_times: Liste von Zeitpunkten in Sekunden (Transienten)
+        - drop_times: Liste von {time, intensity} für Bass-Drops
+        - duration: Dauer in Sekunden
+        - sample_rate: verwendete Abtastrate
+    """
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(music_path, sr=config.AUDIO_SAMPLE_RATE)
+    duration = librosa.get_duration(y=y, sr=sr)
+
+    # Mel-Spektrogramm für Frequenzbänder
+    S = librosa.feature.melspectrogram(
+        y=y, sr=sr,
+        hop_length=config.HOP_LENGTH,
+        n_mels=128,
+        fmax=sr // 2
+    )
+    times = librosa.times_like(S, sr=sr, hop_length=config.HOP_LENGTH)
+
+    # Frequenzbänder in Mel-Skala
+    mel_freqs = librosa.mel_frequencies(n_mels=128, fmax=sr // 2)
+
+    # Subbass: 20-60 Hz
+    subbass_mask = (mel_freqs >= 20) & (mel_freqs < 60)
+    subbass_energy = np.sum(S[subbass_mask], axis=0) if np.any(subbass_mask) else np.zeros(S.shape[1])
+    subbass_norm = subbass_energy / (subbass_energy.max() + 1e-6)
+
+    # Bass: 60-250 Hz
+    bass_mask = (mel_freqs >= 60) & (mel_freqs < 250)
+    bass_energy = np.sum(S[bass_mask], axis=0) if np.any(bass_mask) else np.zeros(S.shape[1])
+    bass_norm = bass_energy / (bass_energy.max() + 1e-6)
+
+    # Kick-Detektion: tiefe Frequenz (Subbass+Bass) + onset envelope
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=config.HOP_LENGTH)
+    onset_env_norm = onset_env / (onset_env.max() + 1e-6)
+
+    # Kombinierte Kick-Energie (Subbass + onset)
+    kick_energy = 0.6 * subbass_norm + 0.4 * onset_env_norm
+    kick_threshold = np.percentile(kick_energy, 85)
+    kick_peaks = _find_peaks2(kick_energy, kick_threshold, min_distance_frames=int(0.1 * sr / config.HOP_LENGTH))
+    kick_times = times[kick_peaks].tolist() if len(kick_peaks) > 0 else []
+
+    # Transienten: schnelle Anstiege im onset envelope (high-frequency content)
+    transient_threshold = np.percentile(onset_env_norm, 90)
+    trans_peaks = _find_peaks2(onset_env_norm, transient_threshold, min_distance_frames=int(0.05 * sr / config.HOP_LENGTH))
+    transient_times = times[trans_peaks].tolist() if len(trans_peaks) > 0 else []
+
+    # Drop-Detektion: steiler Anstieg der Bass-Energie (ähnlich _detect_bass_drops)
+    drops = _detect_drops(bass_norm, times, sr)
+
+    # Energie-Kurven als Listen von (time, value)
+    subbass_list = [(float(times[i]), float(subbass_norm[i])) for i in range(len(times))]
+    bass_list = [(float(times[i]), float(bass_norm[i])) for i in range(len(times))]
+
+    return {
+        "subbass_energy": subbass_list,
+        "bass_energy": bass_list,
+        "kick_times": kick_times,
+        "transient_times": transient_times,
+        "drop_times": drops,
+        "duration": duration,
+        "sample_rate": sr,
+    }
+
+
+def _find_peaks2(signal: np.ndarray, threshold: float, min_distance_frames: int = 10) -> np.ndarray:
+    """Findet Peaks in einem 1D-Signal (einfach, kein scipy)."""
+    peaks = []
+    i = 1
+    while i < len(signal) - 1:
+        if signal[i] > threshold and signal[i] > signal[i-1] and signal[i] >= signal[i+1]:
+            peaks.append(i)
+            i += min_distance_frames
+        else:
+            i += 1
+    return np.array(peaks)
+
+
+def _detect_drops(bass_energy: np.ndarray, times: np.ndarray, sr: int) -> list:
+    """
+    Erkennt Drops als plötzlichen Anstieg der Bass-Energie.
+    Gibt Liste von {time, intensity} zurück.
+    """
+    drops = []
+    window_frames = int(1.0 * sr / config.HOP_LENGTH)  # 1 Sekunde Vergangenheit
+    for i in range(window_frames, len(bass_energy) - 1):
+        preceding_mean = np.mean(bass_energy[max(0, i - window_frames):i])
+        if preceding_mean > 0 and bass_energy[i] > 0.5:
+            ratio = bass_energy[i] / preceding_mean
+            if ratio >= 2.0:  # Faktor 2 Anstieg
+                # Abstand zu letztem Drop > 4 sec
+                if len(drops) == 0 or (times[i] - drops[-1]["time"]) > 4.0:
+                    drops.append({
+                        "time": float(times[i]),
+                        "intensity": float(min(ratio / 4.0, 1.0))
+                    })
+    return drops
+
+
 def _detect_buildups_breakdowns(onset_env_norm, energy_times):
     """
     Erkennt Buildups (steigende Energie) und Breakdowns (fallende Energie).
