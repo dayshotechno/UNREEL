@@ -583,6 +583,17 @@ def _export_one_snippet(i: int, clip: dict, sync_data: dict | None) -> Path | No
             rel_path = os.path.relpath(default_path).replace("\\", "/")
             vf_parts.append(f"lut3d={rel_path}")
 
+    # Beat-reactive VFX: glitch (machine-like black-frame stutter at the cut).
+    # Three ~2-frame black bursts in the first 0.24s – the "single-digit frame
+    # dropout" look for day→night transitions. Single quotes protect the commas
+    # in the enable expression (same as flash). Placed last so the black frames
+    # override the graded image.
+    if vfx == "glitch":
+        vf_parts.append(
+            "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:"
+            "enable='between(t,0,0.04)+between(t,0.1,0.14)+between(t,0.2,0.24)'"
+        )
+
     # Normalize fps as the LAST filter so every snippet shares identical
     # video parameters (fps/pix_fmt/resolution) – this lets the final
     # concat stream-copy instead of re-encoding the whole reel.

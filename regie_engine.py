@@ -527,7 +527,7 @@ EDITING RULES:
 5. Use hard cuts on kicks/snares for energy, crossfades for transitions
 6. Keep individual clips between 2-8 seconds (reels need fast pacing)
 7. If a clip has high motion (>0.8), consider slow-motion (setpts=PTS*2.0)
-8. VFX rules: Use "vfx": "flash" on the hardest drops. Use "vfx": "pump" on driving kicks. Otherwise "none".
+8. VFX rules: Use "vfx": "flash" on the hardest drops. Use "vfx": "pump" on driving kicks. Use "vfx": "glitch" on a clip that marks a hard scene change (e.g. the cut from daytime/outdoor footage into the dark club) for a machine-like black-frame stutter. Otherwise "none".
 9. The last clip should create a seamless loop feel if possible
 10. The analysis JSON includes "clip_durations" (real length of each source file in seconds). NEVER set a clip's "end" beyond its source duration.
 
