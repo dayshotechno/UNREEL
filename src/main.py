@@ -1093,7 +1093,7 @@ Examples:
     )
     parser.add_argument(
         "--preset", "-p",
-        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story"],
+        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino"],
         default="highlight",
         help="Edit preset style (default: highlight)",
     )

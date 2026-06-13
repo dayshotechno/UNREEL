@@ -504,9 +504,35 @@ Make the hook thematically connect to what actually happens in the chosen clips.
 """
 
 
+_TARANTINO_SECTION = """
+TARANTINO / NON-LINEAR MODE (preset = tarantino) — this OVERRIDES the generic editing rules above.
+A brutalist, structured, non-chronological techno edit. NOT a smooth highlight reel. Four phases,
+set each clip's "phase" field accordingly:
+  - "hook" (0–3s): START IN MEDIA RES at the absolute climax — the darkest/most intense club moment
+    (deep red light, strobes, you fully in action, CROWD_ENERGY / LIGHT_SHOW). No intro, no warning.
+    The bass hits instantly. This is the scroll-stopper.
+  - "flashback" (~3–8s): HARD CUT to the chronological backstory in FAST cuts — train, walking the
+    street, getting in the van, the field/outdoor (ARRIVAL / BACKSTAGE / outdoor). Cold and mechanical.
+  - "buildup" (~8–12s): focus on BRANDING — the artist, unapproachable, focused (DJ_SETUP, back shots).
+  - "escalation" (~12s–end): the DROP hits, visually back in the club — strobes, crowd, decks. Full
+    energy to the end (CROWD_ENERGY / LIGHT_SHOW).
+
+TARANTINO RULES:
+1. Order is NON-CHRONOLOGICAL: climax first (hook), then chronological flashback, then buildup, then escalation.
+2. Every cut in the "flashback" phase MUST land exactly on a kick or snare — relentless, rhythmic, fast.
+3. COLOR PER PHASE via the "lut" field:
+   - "flashback" + "buildup" clips → "tech_noir" (near-monochrome, cold, high-contrast industrial look).
+   - "hook" + "escalation" clips (club) → "underground_dark" or "neon_nights".
+4. The clip that cuts FROM the daytime flashback INTO the dark club → set "vfx": "glitch" (black-frame stutter).
+5. Pacing: flashback = very fast (1–2.5s clips); hook & escalation = punchy; let the energy never drop.
+6. Use hard cuts throughout. Avoid crossfades — the aesthetic is brutalist and abrupt.
+"""
+
+
 def _build_system_prompt(preset: str, duration: float, target_bpm: float = 0) -> str:
     """Build the system prompt for the regie AI task."""
     pov_section = _POV_STORY_SECTION if preset == "pov_story" else ""
+    tarantino_section = _TARANTINO_SECTION if preset == "tarantino" else ""
 
     return f"""You are an expert video editor and creative director specializing in techno/electronic music content for Instagram Reels.
 
@@ -537,7 +563,8 @@ PRESET DEFINITIONS:
 - "seamless_loop": Short (15-30s), end flows back to start
 - "moody": Slower cuts, atmospheric, BREAKDOWN + LIGHT_SHOW heavy
 - "pov_story": POV / "A Day in the Life" — story-driven vlog reel (before → during → after a gig) with an anti-advice text hook in the first 3s
-{pov_section}
+- "tarantino": Non-linear, brutalist techno edit — climax first (in media res), then chronological flashback (tech-noir, hard beat-cuts), buildup, escalation
+{pov_section}{tarantino_section}
 You MUST respond with ONLY valid JSON in this exact format (no markdown fences, no commentary):
 {{
   "clips": [
@@ -560,7 +587,7 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown fences, 
 }}
 
 SCHEMA NOTES:
-- "phase": only for the pov_story preset ("before" | "during" | "after"); use "" for all other presets.
+- "phase": pov_story → "before" | "during" | "after"; tarantino → "hook" | "flashback" | "buildup" | "escalation"; "" for all other presets.
 - "hook_text": the anti-advice hook line; REQUIRED (non-empty) for pov_story, "" otherwise."""
 
 
@@ -943,7 +970,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("analysis_json", help="Path to analysis JSON file")
     parser.add_argument("--preset", "-p", default="highlight",
-                        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story"])
+                        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino"])
     parser.add_argument("--duration", "-d", type=float, default=60.0)
     parser.add_argument("--provider", choices=["claude", "gemini", "deepseek", "auto"],
                         default="auto", help="AI provider (default: auto)")

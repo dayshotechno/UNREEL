@@ -171,6 +171,39 @@ def _transform_neon_nights(r: float, g: float, b: float) -> tuple[float, float, 
     return _clamp(rl), _clamp(gl), _clamp(bl)
 
 
+def _transform_tech_noir(r: float, g: float, b: float) -> tuple[float, float, float]:
+    """
+    Tech-Noir Look (tarantino preset flashback):
+    - Near-monochrome (heavy desaturation), cold industrial tint
+    - Very high contrast with crushed blacks and clipped highlights
+    - For the daytime/outdoor flashback: cold, mechanical, almost B&W
+
+    Works in sRGB space directly (no linear round-trip) so the contrast
+    curve reads as a hard, photographic S-curve.
+    """
+    # Step 1: luminance (Rec.709)
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    # Step 2: heavy desaturation toward luma (0.15 = near-monochrome)
+    sat = 0.15
+    r = lum + (r - lum) * sat
+    g = lum + (g - lum) * sat
+    b = lum + (b - lum) * sat
+
+    # Step 3: cold industrial tint (lift blue, drop red slightly)
+    r *= 0.96
+    b *= 1.08
+
+    # Step 4: hard S-curve – crush shadows, then expand contrast around 0.5
+    contrast = 1.6
+
+    def _scurve(c: float) -> float:
+        c = max(0.0, c - 0.04)            # crush shadows
+        return 0.5 + (c - 0.5) * contrast  # expand contrast
+
+    return _clamp(_scurve(r)), _clamp(_scurve(g)), _clamp(_scurve(b))
+
+
 # ---------------------------------------------------------------------------
 # .cube file writer
 # ---------------------------------------------------------------------------
@@ -229,6 +262,7 @@ def generate_all_luts(output_dir: Path | None = None) -> dict[str, Path]:
         "underground_dark": (_transform_underground_dark, out / "underground_dark.cube"),
         "vhs_analog": (_transform_vhs_analog, out / "vhs_analog.cube"),
         "neon_nights": (_transform_neon_nights, out / "neon_nights.cube"),
+        "tech_noir": (_transform_tech_noir, out / "tech_noir.cube"),
     }
 
     for name, (fn, path) in luts.items():
