@@ -422,12 +422,60 @@ def _tracked_x_center(video: str, start: float, end: float) -> float | None:
         return avg_x
 
 
+def _build_endcard(duration: float = 2.6) -> Path | None:
+    """
+    Brutalist tech-noir logo endcard (output/_endcard.mp4).
+
+    The DAY SHØ wordmark stutters in with a chromatic RGB-split glitch over the
+    first ~0.45 s, then snaps clean and holds on black – hard and machine-like,
+    no soft tweens. Encoded with the same params as the snippets so it
+    stream-copy concatenates onto the reel.
+    """
+    logo = LUT_DIR.parent / "LOGO" / "alt master.png"
+    if not logo.exists():
+        logger.warning(f"Endcard logo not found: {logo} – skipping endcard")
+        return None
+
+    out = OUTPUT_DIR / "_endcard.mp4"
+    filter_complex = (
+        "[1:v]scale=760:-1[lg];"
+        "[0:v][lg]overlay=(W-w)/2:(H-h)/2[comp];"
+        "[comp]rgbashift=rh=7:bh=-7:enable='lt(t,0.45)',"
+        "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:"
+        "enable='between(t,0,0.05)+between(t,0.12,0.15)+between(t,0.24,0.26)+between(t,0.34,0.36)',"
+        f"fps={REEL_FPS}[v]"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:s=1080x1920:r={REEL_FPS}:d={duration}",
+        "-loop", "1", "-i", str(logo),
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-filter_complex", filter_complex,
+        "-map", "[v]", "-map", "2:a",
+        "-t", f"{duration}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        "-shortest", "-movflags", "+faststart",
+        str(out),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            logger.info(f"  ✓ Endcard built ({duration:.1f}s)")
+            return out
+        logger.error(f"  ✗ Endcard failed: {result.stderr.strip()[-300:]}")
+    except Exception as e:
+        logger.error(f"  ✗ Endcard error: {e}")
+    return None
+
+
 def phase_5_assembly(
     edit_plan: dict | None,
     sync_data: dict | None = None,
     music_path: Path | None = None,
     vision_data: dict | None = None,
     jcut: bool = False,
+    endcard: bool = False,
 ) -> None:
     """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio.
 
@@ -482,6 +530,13 @@ def phase_5_assembly(
                 logger.error(f"  [{idx + 1:02d}] ✗ Export worker error: {e}")
 
     exported_snippets = [results[i] for i in sorted(results)]  # plan order
+
+    # Optional: brutalist logo endcard, appended as the last snippet so the
+    # music bed (applied after concat) flows over it.
+    if endcard and exported_snippets:
+        card = _build_endcard()
+        if card is not None:
+            exported_snippets.append(card)
 
     # Final step: stitch the snippets into ONE reel, in plan order
     final_reel: Path | None = None
@@ -938,6 +993,7 @@ def run_pipeline(
     multi: bool = False,
     music: Path | None = None,
     jcut: bool = False,
+    endcard: bool = False,
 ):
     """Run the complete UNREEL V3 pipeline."""
     # Ensure directories exist
@@ -1069,6 +1125,7 @@ def run_pipeline(
             music_path=music,
             vision_data=all_results.get("phase_2"),
             jcut=jcut or preset == "tarantino",
+            endcard=endcard or preset == "tarantino",
         )
 
     # Final save
@@ -1155,6 +1212,12 @@ Examples:
              "until the drop, then slams in. Auto-on for the tarantino preset.",
     )
     parser.add_argument(
+        "--endcard",
+        action="store_true",
+        help="Append a brutalist animated logo endcard (LOGO/alt master.png). "
+             "Auto-on for the tarantino preset.",
+    )
+    parser.add_argument(
         "--phase",
         nargs="*",
         choices=["setup", "sync", "vision", "regie", "copy", "export", "analyze"],
@@ -1197,6 +1260,7 @@ Examples:
         multi=args.multi,
         music=args.music,
         jcut=args.jcut,
+        endcard=args.endcard,
     )
 
 
