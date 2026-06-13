@@ -209,9 +209,25 @@ def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_
 
         logger.info(f"\n[{i}/{total}] Analyzing {vp.name}...")
 
-        # Vision tagging via Gemma 4
+        # Vision tagging via Gemma 4. A single unreadable/corrupt clip must
+        # NOT kill the whole run – mark it empty and carry on.
         logger.info("  Running vision tagging (Gemma 4 E2B)...")
-        tags = tag_video_frames(vp_str)
+        try:
+            tags = tag_video_frames(vp_str)
+        except Exception as e:
+            logger.error(f"  ✗ Tagging failed for {vp.name} ({e}) – skipping clip")
+            result[vp_str] = {
+                "vision_tags": [],
+                "vision_tags_filtered": [],
+                "tag_count": 0,
+                "usable_count": 0,
+                "error": str(e),
+                "dhash_sig": sig,
+            }
+            if save_cb is not None:
+                save_cb(result)
+            continue
+
         filtered = filter_unusable(tags)
 
         result[vp_str] = {

@@ -228,6 +228,123 @@ class MLXVisionBackend(VisionBackend):
 
 
 # ---------------------------------------------------------------------------
+# Backend 3: Gemini (Cloud – stark & schnell, batch-fähig)
+# ---------------------------------------------------------------------------
+
+class GeminiVisionBackend(VisionBackend):
+    """
+    Vision-Tagging über die Google-Gemini-Cloud (default gemini-2.5-flash).
+
+    Gemini ist nativ multimodal und nimmt mehrere Bilder pro Aufruf entgegen –
+    eine ganze Frame-Gruppe geht in EINEM Request raus. Stärker als die lokalen
+    Modelle (weniger Fehl-Tags) und auf Cloud-GPUs deutlich schneller als
+    CPU/MLX. `response_mime_type=application/json` erzwingt sauberes JSON.
+
+    Privatsphäre-Hinweis: die Frames verlassen den Rechner. Bewusst per
+    VISION_BACKEND=gemini opt-in, Default bleibt lokal.
+    """
+    name = "gemini"
+
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash",
+                 temperature: float = 0.3):
+        self._api_key = api_key
+        self._model = model
+        self._temperature = temperature
+
+    def is_available(self) -> bool:
+        if not self._api_key:
+            return False
+        try:
+            import importlib.util
+            return importlib.util.find_spec("google.generativeai") is not None
+        except Exception:
+            return False
+
+    def describe_frames(self, prompt: str, frames: list[tuple[float, bytes]]) -> str:
+        import google.generativeai as genai
+
+        genai.configure(api_key=self._api_key)
+        model = genai.GenerativeModel(
+            model_name=self._model,
+            generation_config=genai.types.GenerationConfig(
+                temperature=self._temperature,
+                response_mime_type="application/json",
+            ),
+        )
+        # One request: prompt text followed by all frames as inline JPEG blobs.
+        parts: list = [prompt]
+        for _, jpeg in frames:
+            parts.append({"mime_type": "image/jpeg", "data": jpeg})
+
+        response = model.generate_content(parts)
+        return response.text
+
+
+# ---------------------------------------------------------------------------
+# Backend 4: Claude (Cloud – Fallback, ebenfalls multimodal)
+# ---------------------------------------------------------------------------
+
+class ClaudeVisionBackend(VisionBackend):
+    """
+    Vision-Tagging über Anthropic Claude. Fallback/Alternative zu Gemini.
+    Das Modell muss Bild-Input unterstützen (Claude-Vision-fähige Modelle).
+    Fable 5 may emit a thinking block first, so only text blocks are read.
+    """
+    name = "claude"
+
+    def __init__(self, api_key: str, model: str = "claude-fable-5",
+                 temperature: float = 0.3, max_tokens: int = 2048):
+        self._api_key = api_key
+        self._model = model
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+
+    def is_available(self) -> bool:
+        if not self._api_key:
+            return False
+        try:
+            import importlib.util
+            return importlib.util.find_spec("anthropic") is not None
+        except Exception:
+            return False
+
+    def describe_frames(self, prompt: str, frames: list[tuple[float, bytes]]) -> str:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=self._api_key)
+        content: list = []
+        for _, jpeg in frames:
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64.b64encode(jpeg).decode("utf-8"),
+                },
+            })
+        content.append({"type": "text", "text": prompt})
+
+        params = dict(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            messages=[{"role": "user", "content": content}],
+            temperature=self._temperature,
+        )
+        try:
+            response = client.messages.create(**params)
+        except anthropic.BadRequestError as exc:
+            if "temperature" in str(exc).lower():
+                params.pop("temperature", None)
+                response = client.messages.create(**params)
+            else:
+                raise
+        return "".join(
+            b.text for b in response.content
+            if getattr(b, "type", None) == "text"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -236,11 +353,23 @@ def get_vision_backend() -> VisionBackend:
     Wählt das Backend nach config/ENV.
 
     Erwartete config/ENV-Keys (mit Defaults):
-        VISION_BACKEND   = "ollama" | "mlx"          (default: "ollama")
+        VISION_BACKEND   = "ollama" | "mlx" | "gemini" | "claude"  (default: "ollama")
         MLX_VISION_MODEL = z.B. "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
-        OLLAMA_HOST, GEMMA_MODEL  (für das Ollama-Backend)
+        OLLAMA_HOST, GEMMA_MODEL          (für das Ollama-Backend)
+        GEMINI_API_KEY, GEMINI_VISION_MODEL  (default: gemini-2.5-flash)
+        ANTHROPIC_API_KEY, CLAUDE_VISION_MODEL
     """
     backend = os.environ.get("VISION_BACKEND", "ollama").lower()
+
+    if backend == "gemini":
+        key = os.environ.get("GEMINI_API_KEY", "")
+        model = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+        return GeminiVisionBackend(api_key=key, model=model)
+
+    if backend == "claude":
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        model = os.environ.get("CLAUDE_VISION_MODEL", "claude-fable-5")
+        return ClaudeVisionBackend(api_key=key, model=model)
 
     if backend == "mlx":
         model = os.environ.get(

@@ -34,8 +34,13 @@ def _get_vision_backend():
 # Configuration
 # ---------------------------------------------------------------------------
 
+import os
+
 SAMPLE_INTERVAL_SEC = 5  # Sample a frame every N seconds
-BATCH_SIZE = 4  # Send N frames per API call for efficiency
+# Frames per model call. Local models (small VRAM/context) want few; cloud
+# models (Gemini/Claude) handle a whole clip at once → set VISION_BATCH_SIZE
+# higher (e.g. 12) to cut calls and stay under free-tier RPM limits.
+BATCH_SIZE = int(os.environ.get("VISION_BATCH_SIZE", "4") or 4)
 CONFIDENCE_THRESHOLD = 0.3
 
 VALID_TAGS = [
@@ -117,12 +122,18 @@ def extract_sample_frames(
     """
     Extract frames from a video at regular intervals.
     Returns list of (timestamp_seconds, jpeg_bytes).
+
+    Primary path uses OpenCV. OpenCV ships its own FFmpeg build that
+    occasionally fails to open perfectly valid h264 clips ("Could not open
+    codec h264"); when that happens we fall back to the system ffmpeg, which
+    decodes far more reliably.
     """
     path = str(video_path)
     cap = cv2.VideoCapture(path)
 
     if not cap.isOpened():
-        raise IOError(f"Cannot open video: {path}")
+        logger.warning(f"OpenCV cannot open {Path(path).name} – trying system ffmpeg")
+        return _extract_frames_ffmpeg(path, interval_sec)
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -140,7 +151,7 @@ def extract_sample_frames(
         if not ret:
             break
 
-        if frame_idx % interval_frames == 0:
+        if interval_frames > 0 and frame_idx % interval_frames == 0:
             timestamp = frame_idx / fps
             # Encode as JPEG for smaller payload
             _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -149,7 +160,62 @@ def extract_sample_frames(
         frame_idx += 1
 
     cap.release()
+
+    # OpenCV opened the file but produced no frames (codec init failed
+    # mid-stream) – fall back to system ffmpeg before giving up.
+    if not samples:
+        logger.warning(f"OpenCV extracted 0 frames from {Path(path).name} – trying system ffmpeg")
+        return _extract_frames_ffmpeg(path, interval_sec)
+
     logger.info(f"  Extracted {len(samples)} sample frames")
+    return samples
+
+
+def _extract_frames_ffmpeg(
+    path: str,
+    interval_sec: float = SAMPLE_INTERVAL_SEC,
+) -> list[tuple[float, bytes]]:
+    """
+    Fallback frame extraction via the system ffmpeg binary (subprocess).
+    Decodes one JPEG every `interval_sec` using `-vf fps=1/interval` and
+    splits the concatenated MJPEG stream on JPEG SOI/EOI markers.
+    """
+    import subprocess
+
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-i", path,
+        "-vf", f"fps=1/{interval_sec},scale=-2:480",
+        "-q:v", "5",
+        "-f", "image2pipe", "-c:v", "mjpeg", "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=300)
+    except Exception as e:
+        raise IOError(f"Cannot open video (ffmpeg fallback failed): {path} ({e})")
+
+    data = proc.stdout
+    if proc.returncode != 0 or not data:
+        tail = proc.stderr.decode(errors="replace")[-200:]
+        raise IOError(f"Cannot open video (ffmpeg fallback): {path} – {tail}")
+
+    # Split concatenated JPEGs on SOI (FFD8) … EOI (FFD9) markers.
+    samples: list[tuple[float, bytes]] = []
+    start = data.find(b"\xff\xd8")
+    idx = 0
+    while start != -1:
+        end = data.find(b"\xff\xd9", start)
+        if end == -1:
+            break
+        jpeg = data[start:end + 2]
+        samples.append((idx * interval_sec, jpeg))
+        idx += 1
+        start = data.find(b"\xff\xd8", end + 2)
+
+    if not samples:
+        raise IOError(f"Cannot open video: {path} (no frames via ffmpeg)")
+
+    logger.info(f"  Extracted {len(samples)} sample frames (ffmpeg fallback)")
     return samples
 
 
