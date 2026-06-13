@@ -601,6 +601,8 @@ EDITING RULES:
 8. VFX rules: Use "vfx": "flash" on the hardest drops. Use "vfx": "pump" on driving kicks. Use "vfx": "glitch" on a clip that marks a hard scene change (e.g. the cut from daytime/outdoor footage into the dark club) for a machine-like black-frame stutter. Otherwise "none".
 9. The last clip should create a seamless loop feel if possible
 10. The analysis JSON includes "clip_durations" (real length of each source file in seconds). NEVER set a clip's "end" beyond its source duration.
+11. **Per‑clip audio analysis**: Each video in phase_2 may contain an "audio_analysis" dict with: tempo, beat_times, bass_drops, buildups, breakdowns, energy_envelope, energy_times. Use these to align cuts to that specific video's kicks/beats. If a video lacks audio_analysis, fall back to the global beat grid.
+12. **Music track analysis** (optional): If present in music_analysis, it contains: bpm, kick_times, drop_times, beat_times. You may align cuts to the music track for a tighter sync between the reel and the background audio. If both per‑clip and music track data exist, prefer per‑clip data for the video's own cuts, but use music track data for the overall pacing and drop alignment.
 
 PRESET DEFINITIONS:
 - "highlight": Best moments, high energy, fast cuts, 60-90s

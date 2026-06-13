@@ -130,24 +130,6 @@ def phase_1_sync(video_paths: list[Path], music_path: Path | None = None) -> dic
     logger.info(f"  Kicks: {len(percussion.kicks)}")
     logger.info(f"  Snares: {len(percussion.snares)}")
 
-    # Optional: Musikdatei analysieren (Bass, Subbass, Kicks, Transienten, Drops)
-    if music_path and music_path.exists() and music_path.suffix.lower() in _AUDIO_EXTENSIONS:
-        logger.info(f"\nMusic file for analysis: {music_path.name}")
-        try:
-            from analyzer.audio_analyzer import analyze_music_file
-            music_analysis = analyze_music_file(str(music_path))
-            result["music_analysis"] = music_analysis
-            logger.info(f"  Music analysis complete: {len(music_analysis['kick_times'])} kicks, "
-                        f"{len(music_analysis['transient_times'])} transients, "
-                        f"{len(music_analysis['drop_times'])} drops detected")
-        except Exception as e:
-            logger.warning(f"Music analysis failed: {e}")
-            result["music_analysis"] = {"error": str(e)}
-    elif music_path:
-        logger.warning(f"Music file {music_path} not found or unsupported – skipping music analysis")
-    else:
-        result["music_analysis"] = None  # kein Music-Track angegeben
-
     return result
 
 
@@ -291,9 +273,40 @@ def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_
         for t in filtered[:5]:
             logger.info(f"    t={t.time:.1f}s  {t.tag}  ({t.confidence:.2f})")
 
+        # Audio-Analyse für dieses Video (BPM, Beats, Energy, Bass Drops, Buildups)
+        logger.info(f"  Analyzing audio for {vp.name}...")
+        try:
+            from analyzer.audio_analyzer import analyze_audio
+            audio_result = analyze_audio(vp_str)
+            result[vp_str]["audio_analysis"] = audio_result
+            logger.info(f"    BPM: {audio_result['tempo']:.1f}, Beats: {len(audio_result['beat_times'])}, "
+                        f"Drops: {len(audio_result['bass_drops'])}, Buildups: {len(audio_result['buildups'])}")
+        except Exception as e:
+            logger.warning(f"    Audio analysis failed: {e}")
+            result[vp_str]["audio_analysis"] = {"error": str(e)}
+
         # Persist after every clip so progress survives interruptions
         if save_cb is not None:
             save_cb(result)
+
+    # Musikdatei analysieren (Bass, Subbass, Kicks, Transienten, Drops)
+    if music_path and music_path.exists() and music_path.suffix.lower() in _AUDIO_EXTENSIONS:
+        logger.info(f"\nMusic file for analysis: {music_path.name}")
+        try:
+            from analyzer.audio_analyzer import analyze_music_file
+            music_analysis = analyze_music_file(str(music_path))
+            result["music_analysis"] = music_analysis
+            logger.info(f"  Music analysis complete: BPM={music_analysis.get('bpm', '?')}, "
+                        f"{len(music_analysis.get('kick_times', []))} kicks, "
+                        f"{len(music_analysis.get('transient_times', []))} transients, "
+                        f"{len(music_analysis.get('drop_times', []))} drops")
+        except Exception as e:
+            logger.warning(f"Music analysis failed: {e}")
+            result["music_analysis"] = {"error": str(e)}
+    elif music_path:
+        logger.warning(f"Music file {music_path} not found or unsupported – skipping music analysis")
+    else:
+        result["music_analysis"] = None  # kein Music-Track angegeben
 
     return result
 
@@ -1191,13 +1204,19 @@ def run_pipeline(
 
     # Phase 3: AI Regie (multi-provider)
     if phases is None or "regie" in phases:
-        # Füge Musik-Analyse-Daten zum Context hinzu, falls vorhanden
+        # Füge Musik-Analyse + pro-Video Audio-Analyse zum Context hinzu
         p2 = all_results.get("phase_2") or {}
         music_analysis = p2.get("music_analysis") if isinstance(p2, dict) else None
         if music_analysis and "error" not in music_analysis:
             all_results = {**all_results, "music_analysis": music_analysis}
-            logger.info(f"  Music analysis available: {len(music_analysis.get('drop_times', []))} drops, "
+            logger.info(f"  Music analysis available: BPM={music_analysis.get('bpm', '?')}, "
+                        f"{len(music_analysis.get('drop_times', []))} drops, "
                         f"{len(music_analysis.get('kick_times', []))} kicks")
+        # Prüfe, ob pro-Video Audio-Analysen vorhanden sind
+        audio_count = sum(1 for vp_str, entry in p2.items()
+                          if isinstance(entry, dict) and "audio_analysis" in entry)
+        if audio_count > 0:
+            logger.info(f"  Per‑clip audio analysis available for {audio_count}/{len(p2)} videos")
         all_results["phase_3"] = phase_3_regie(
             all_results, preset, duration,
             provider=provider,
