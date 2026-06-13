@@ -427,6 +427,7 @@ def phase_5_assembly(
     sync_data: dict | None = None,
     music_path: Path | None = None,
     vision_data: dict | None = None,
+    jcut: bool = False,
 ) -> None:
     """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio.
 
@@ -494,7 +495,7 @@ def phase_5_assembly(
 
     # Optional: lay a chosen music track over the finished reel
     if music_path is not None and final_reel is not None:
-        _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data)
+        _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data, jcut=jcut)
 
 
 def _export_one_snippet(i: int, clip: dict, sync_data: dict | None) -> Path | None:
@@ -847,10 +848,16 @@ def _probe_duration(path: Path) -> float:
 def _apply_music_bed(
     reel_path: Path, music_path: Path,
     clips: list[dict], vision_data: dict | None,
+    jcut: bool = False,
 ) -> None:
     """
     Replace the reel's audio with `music_path`, aligning the track's drop to
     the reel's energy peak. Adds a 1.5 s fade-out. Edits `reel_path` in place.
+
+    When `jcut` is set (J-cut + lowpass), the music plays heavily lowpassed
+    ("through the club door") until the drop lands on the reel peak, then the
+    filter is removed and the full track slams in – building tension across
+    the flashback before the visual arrival in the club.
     """
     if not music_path.exists():
         logger.warning(f"Music file not found: {music_path} – keeping original audio")
@@ -881,7 +888,17 @@ def _apply_music_bed(
         f"(track starts at {music_start:.1f}s)"
     )
 
+    # Build the audio filter chain. The lowpass uses FFmpeg's timeline
+    # `enable` option: active (muffled) before the drop, bypassed (full) after.
     fade_start = max(0.0, reel_dur - 1.5)
+    af_parts = []
+    if jcut and peak_t > 0.5:
+        # Cutoff ~380 Hz keeps only kick/bass – the "heard from outside" sound.
+        af_parts.append(f"lowpass=f=380:enable='lt(t,{peak_t:.3f})'")
+        logger.info(f"  🚪 J-cut: music lowpassed until the drop @ {peak_t:.1f}s, then full")
+    af_parts.append(f"afade=t=out:st={fade_start:.3f}:d=1.5")
+    af_chain = ",".join(af_parts)
+
     tmp_path = reel_path.with_name(reel_path.stem + "_music.mp4")
     cmd = [
         "ffmpeg", "-y",
@@ -890,7 +907,7 @@ def _apply_music_bed(
         "-map", "0:v:0", "-map", "1:a:0",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k",
-        "-af", f"afade=t=out:st={fade_start:.3f}:d=1.5",
+        "-af", af_chain,
         "-shortest", "-movflags", "+faststart",
         str(tmp_path),
     ]
@@ -920,6 +937,7 @@ def run_pipeline(
     provider: str = "",
     multi: bool = False,
     music: Path | None = None,
+    jcut: bool = False,
 ):
     """Run the complete UNREEL V3 pipeline."""
     # Ensure directories exist
@@ -1043,11 +1061,14 @@ def run_pipeline(
     if phases is None or "export" in phases:
         edit_plan = all_results.get("phase_3", {}).get("edit_plan")
         sync_data = all_results.get("phase_1", {}).get("sync")
+        # J-cut/lowpass is the tarantino aesthetic by default; --jcut forces it
+        # on for any preset.
         phase_5_assembly(
             edit_plan,
             sync_data=sync_data,
             music_path=music,
             vision_data=all_results.get("phase_2"),
+            jcut=jcut or preset == "tarantino",
         )
 
     # Final save
@@ -1128,6 +1149,12 @@ Examples:
              "The track's drop is auto-aligned to the reel's energy peak.",
     )
     parser.add_argument(
+        "--jcut",
+        action="store_true",
+        help="J-cut + lowpass: music plays muffled ('through the club door') "
+             "until the drop, then slams in. Auto-on for the tarantino preset.",
+    )
+    parser.add_argument(
         "--phase",
         nargs="*",
         choices=["setup", "sync", "vision", "regie", "copy", "export", "analyze"],
@@ -1169,6 +1196,7 @@ Examples:
         provider=args.provider,
         multi=args.multi,
         music=args.music,
+        jcut=args.jcut,
     )
 
 

@@ -340,6 +340,11 @@ python main.py -i ./input -p moody     -d 45 --phase regie export
 python main.py -i ./input -p highlight -d 60 --music ./mysong.mp3
 python main.py -i ./input -p highlight -d 60 --music ./mysong.mp3 --phase export
 
+# ── Tarantino-Edit: non-linear, Tech-Noir-Flashback, J-Cut/Lowpass ──────
+# (--jcut ist bei -p tarantino automatisch an: Musik dumpf bis zum Drop)
+python main.py -i ./input -p tarantino -d 30 --music ./hardtechno.mp3
+python main.py -i ./input -p highlight  -d 60 --music ./song.mp3 --jcut
+
 # ── Einzelne Phasen ─────────────────────────────────────────────────────
 python main.py --phase sync            # nur Audio-Sync
 python main.py --phase vision          # nur Vision-Tagging (resumebar)
