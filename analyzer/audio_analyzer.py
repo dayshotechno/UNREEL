@@ -226,6 +226,14 @@ def analyze_music_file(music_path: str) -> dict:
     y, sr = librosa.load(music_path, sr=config.AUDIO_SAMPLE_RATE)
     duration = librosa.get_duration(y=y, sr=sr)
 
+    # BPM & Beat-Times
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, hop_length=config.HOP_LENGTH)
+    if hasattr(tempo, '__len__'):
+        tempo = float(tempo[0]) if len(tempo) > 0 else 120.0
+    else:
+        tempo = float(tempo)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr, hop_length=config.HOP_LENGTH)
+
     # Mel-Spektrogramm für Frequenzbänder
     S = librosa.feature.melspectrogram(
         y=y, sr=sr,
@@ -271,6 +279,8 @@ def analyze_music_file(music_path: str) -> dict:
     bass_list = [(float(times[i]), float(bass_norm[i])) for i in range(len(times))]
 
     return {
+        "bpm": tempo,
+        "beat_times": beat_times.tolist(),
         "subbass_energy": subbass_list,
         "bass_energy": bass_list,
         "kick_times": kick_times,

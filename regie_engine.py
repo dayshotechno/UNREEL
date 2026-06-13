@@ -772,6 +772,26 @@ def generate_edit_plan(
     # Build prompts
     system_prompt = _build_system_prompt(preset, duration, target_bpm)
 
+    # Musikdaten als zusätzlichen Abschnitt im System-Prompt einfügen (für alle Presets)
+    music_analysis = analysis_data.get("music_analysis")
+    if music_analysis and "error" not in music_analysis:
+        music_summary = "\n\nMUSIC TRACK ANALYSIS (use for timing cuts, drops, and overall pacing):\n"
+        if music_analysis.get("bpm"):
+            music_summary += f"- BPM: {music_analysis['bpm']:.1f}\n"
+        if music_analysis.get("beat_times"):
+            beats = music_analysis["beat_times"]
+            music_summary += f"- {len(beats)} beat_times: first 8 = {beats[:8]}\n"
+        if music_analysis.get("kick_times"):
+            kicks = music_analysis["kick_times"]
+            music_summary += f"- {len(kicks)} kick_times: first 10 = {kicks[:10]}\n"
+        if music_analysis.get("drop_times"):
+            drops = music_analysis["drop_times"]
+            music_summary += f"- {len(drops)} drop_times: {drops[:5]}\n"
+        if music_analysis.get("subbass_energy"):
+            # Nur zeigen, dass es existiert
+            music_summary += f"- subbass_energy curve available ({len(music_analysis['subbass_energy'])} values)\n"
+        system_prompt += music_summary
+
     trimmed = _trim_analysis_for_prompt(analysis_data)
     user_data = f"ANALYSIS DATA:\n```json\n{json.dumps(trimmed, indent=2, ensure_ascii=False, default=str)}\n```"
 
