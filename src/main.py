@@ -1204,6 +1204,11 @@ def run_pipeline(
 
     # Phase 3: AI Regie (multi-provider)
     if phases is None or "regie" in phases:
+        # Tarantino preset: force 15s reel (algorithmic dramaturgy)
+        if preset == "tarantino" and duration == 60.0:  # only override if default
+            logger.info("Tarantino preset: setting reel duration to 15.0s (Retention-Pipeline)")
+            duration = 15.0
+
         # Füge Musik-Analyse + pro-Video Audio-Analyse zum Context hinzu
         p2 = all_results.get("phase_2") or {}
         music_analysis = p2.get("music_analysis") if isinstance(p2, dict) else None
