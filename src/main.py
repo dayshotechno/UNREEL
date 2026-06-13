@@ -1081,60 +1081,62 @@ def _apply_music_bed(
         f"(track starts at {music_start:.1f}s)"
     )
 
-    # Build the audio filter chain. The lowpass uses FFmpeg's timeline
-    # `enable` option: active (muffled) before the drop, bypassed (full) after.
     fade_start = max(0.0, reel_dur - 1.5)
-    af_parts = []
-    if jcut and peak_t > 0.5:
-        # Cutoff ~380 Hz keeps only kick/bass – the "heard from outside" sound.
-        af_parts.append(f"lowpass=f=380:enable='lt(t,{peak_t:.3f})'")
-        logger.info(f"  🚪 J-cut: music lowpassed until the drop @ {peak_t:.1f}s, then full")
-    af_parts.append(f"afade=t=out:st={fade_start:.3f}:d=1.5")
-    af_chain = ",".join(af_parts)
+    fade = f"afade=t=out:st={fade_start:.3f}:d=1.5"
+    use_jcut = jcut and peak_t > 0.5
+    use_sfx = sfx and peak_t > 0.5
+
+    # Music processing graph from [1:a] → [mus].
+    # J-cut as a SMOOTH filter sweep (not a binary switch): split into a
+    # constant lowpassed base (kick/bass) + a highpass band whose volume
+    # ramps 0→1 over ~1.5s ending on the drop. The highs "bloom" in, so the
+    # filter opens gradually instead of snapping. FFmpeg can't time-automate a
+    # lowpass cutoff directly, hence the split/fade-in trick.
+    if use_jcut:
+        sweep = 1.5
+        sstart = max(0.0, peak_t - sweep)
+        env = f"min(1,max(0,(t-{sstart:.3f})/{sweep:.3f}))"
+        mus_graph = (
+            f"[1:a]asplit=2[lo][hi];"
+            f"[lo]lowpass=f=380[lo2];"
+            f"[hi]highpass=f=380,volume='{env}':eval=frame[hi2];"
+            f"[lo2][hi2]amix=inputs=2:normalize=0[mj];"
+            f"[mj]{fade},aformat=channel_layouts=stereo[mus]"
+        )
+        logger.info(f"  🚪 J-cut: filter sweeps open over {sweep:.1f}s into the drop @ {peak_t:.1f}s")
+    else:
+        mus_graph = f"[1:a]{fade},aformat=channel_layouts=stereo[mus]"
 
     tmp_path = reel_path.with_name(reel_path.stem + "_music.mp4")
+    base = ["ffmpeg", "-y", "-i", str(reel_path), "-ss", f"{music_start:.3f}", "-i", str(music_path)]
+    tail = ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart", str(tmp_path)]
 
-    use_sfx = sfx and peak_t > 0.5
     if use_sfx:
-        # Synthetic SFX, positioned by the reel peak. Riser ends ON the drop;
-        # impact hits ON the drop. Mixed over the (jcut/faded) music. Levels
-        # kept modest so it's felt, not heard – amix normalize=0 = additive.
+        # Synthetic SFX positioned by the reel peak: a noise riser ending ON
+        # the drop + a sub-bass impact ON the drop, mixed over the music.
+        # Levels modest (felt, not heard); amix normalize=0 = additive.
         riser_start_ms = int(max(0.0, peak_t - 2.5) * 1000)
         peak_ms = int(peak_t * 1000)
         filter_complex = (
-            f"[1:a]{af_chain},aformat=channel_layouts=stereo[mus];"
+            f"{mus_graph};"
             f"[2:a]highpass=f=300,volume='pow(t/2.5,2.5)':eval=frame,volume=0.30,"
             f"adelay={riser_start_ms}:all=1,aformat=channel_layouts=stereo[r];"
             f"[3:a]volume='exp(-t*6)':eval=frame,volume=3.0,"
             f"adelay={peak_ms}:all=1,aformat=channel_layouts=stereo[i];"
             f"[mus][r][i]amix=inputs=3:normalize=0:duration=first[a]"
         )
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(reel_path),
-            "-ss", f"{music_start:.3f}", "-i", str(music_path),
+        cmd = base + [
             "-f", "lavfi", "-i", "anoisesrc=c=pink:d=2.5:a=0.7",
             "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*48*t)+0.5*sin(2*PI*80*t)':d=0.8",
             "-filter_complex", filter_complex,
             "-map", "0:v:0", "-map", "[a]",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart",
-            str(tmp_path),
-        ]
+        ] + tail
         logger.info(f"  🔊 SFX: riser → drop @ {peak_t:.1f}s + sub-impact")
+    elif use_jcut:
+        cmd = base + ["-filter_complex", mus_graph, "-map", "0:v:0", "-map", "[mus]"] + tail
     else:
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", str(reel_path),
-            "-ss", f"{music_start:.3f}", "-i", str(music_path),
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
-            "-af", af_chain,
-            "-shortest", "-movflags", "+faststart",
-            str(tmp_path),
-        ]
+        cmd = base + ["-map", "0:v:0", "-map", "1:a:0", "-af", fade] + tail
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode == 0:
