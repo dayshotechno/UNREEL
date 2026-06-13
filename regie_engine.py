@@ -580,10 +580,80 @@ HARD CUTS ONLY. No crossfades. The aesthetic is brutalist and abrupt.
 
 
 
+_ARTIST_NARRATIVE_SECTION = """
+ARTIST-NARRATIVE / STORY-WEAPON MODE (preset = artist_narrative) — OVERRIDES the generic rules.
+Goal: REACH. Turn the gig's backstory (train ride, walking, crew moments) into a story with a sharp,
+often sarcastic or "deep" take on DJ life. The viewer should feel they are on a MISSION with you.
+Retention pipeline: bait in 3s → make them feel the grind → pay it off with the drop.
+
+ANTI-ADVICE / "POV" HOOK (REQUIRED — put it in the top-level "hook_text" field):
+ONE punchy on-screen line for the first 3s, sarcastic/deep, contrasting the grind with the reward.
+Under ~70 chars, no hashtags/emojis. Match this energy (do NOT copy verbatim):
+  - "POV: 6h Zugfahrt für ein 90-Minuten-Set im roten Bereich."
+  - "niemand sieht die 8 Stunden vorher. nur die 8 Sekunden danach."
+  - "the train was late. the drop wasn't."
+
+PHASES (set each clip's "phase"):
+1. "hook" (0–3s): the text hook over a grabbing image — can be a quiet/tense travel shot OR a flash of
+   the club to come. Establish the contrast immediately.
+2. "journey" (3s → drop): the grind, CHRONOLOGICAL — train, walking, van, soundcheck, crew (ARRIVAL /
+   BACKSTAGE / outdoor). DESATURATED, mechanical, cold. LUT: "tech_noir". Cuts on the beat but the
+   muffled bass (J-cut) rumbles underneath. Energy deliberately suppressed.
+3. "escalation" (drop → end): EXPLODE into the club exactly at music drop_times[0].time. Strobes, crowd,
+   decks, full energy (CROWD_ENERGY / LIGHT_SHOW). LUT: "underground_dark" / "neon_nights".
+The LAST "journey" clip before the club → VFX: "glitch". VFX: "flash" on the hardest club hit.
+HARD CUTS. The contrast quiet→explosion is the whole point.
+"""
+
+_BOOKING_SECTION = """
+BOOKING / PROMOTER-SHOWCASE MODE (preset = booking) — OVERRIDES the generic rules.
+This is a DIGITAL BUSINESS CARD for club owners / promoters. In 10 seconds they must see: this artist is
+professional, the floor is PACKED, the energy fits. NO private moments, NO funny train scenes, NO journey.
+Pure, uncompromising professionalism and escalation.
+
+RULES:
+- Content ONLY: technique at the mixer (hands on XONE / Pioneer / CDJs, DJ_SETUP) intercut with WIDE shots
+  of the packed, celebrating crowd (CROWD_ENERGY / LIGHT_SHOW). EXCLUDE ARRIVAL / BACKSTAGE / outdoor /
+  travel / goofing-around clips entirely.
+- FRONT-LOAD the single most impressive crowd/energy moment in the first 3s (retention) — no slow intro.
+- Fast, precise, confident cuts on kicks/snares. Tight, never sloppy. Keep energy HIGH the whole time,
+  no comedown. If music_analysis exists, peak the cut frequency around drop_times[0].time.
+- LUT: "underground_dark" or "neon_nights" (club look only — NEVER "tech_noir", there is no journey).
+- VFX: "flash" / "pump" on hits. No "glitch" (that signals a scene change; here it's all one world).
+- "hook_text" stays "" — this sells through pure visual professionalism, not a text gimmick.
+Set each clip's "phase": "opener" | "showcase" | "peak".
+"""
+
+_COMMUNITY_SECTION = """
+COMMUNITY / BEHIND-THE-SCENES MODE (preset = community) — OVERRIDES the generic rules.
+For the existing fanbase: the jokes on the train, messing around with the crew, the unfiltered reality
+before and after the gig. Build a real, approachable bond. Show the contrast between "private Patrick"
+and the "unapproachable machine DAY SHØ" behind the decks.
+
+RULES:
+- USE the human clips: ARRIVAL, BACKSTAGE, PACKDOWN, crew moments, candid/outdoor. The generic
+  "avoid BACKSTAGE" rule does NOT apply — these ARE the content.
+- CHRONOLOGICAL and looser pacing — NOT a brutalist beat-massacre. Clips may breathe (up to ~6s).
+  Cuts can follow story beats, not only kicks.
+- The KEY beat: at least one HARD contrast cut from a candid/goofy private moment straight into a
+  focused, intense behind-the-decks shot (the "Patrick → DAY SHØ" flip). Consider VFX "glitch" there.
+- Warmer, natural look: LUT "vhs_analog" for the candid/BTS moments, "underground_dark" for the booth.
+- Retention: still open with the most charming/funny 3s so the fan stops scrolling.
+- "hook_text" optional — a light, personal line (e.g. "die jungs vs. das set."). "" is fine.
+Set each clip's "phase": "before" | "during" | "after" (chronological).
+"""
+
+
 def _build_system_prompt(preset: str, duration: float, target_bpm: float = 0) -> str:
     """Build the system prompt for the regie AI task."""
-    pov_section = _POV_STORY_SECTION if preset == "pov_story" else ""
-    tarantino_section = _TARANTINO_SECTION if preset == "tarantino" else ""
+    sections = {
+        "pov_story": _POV_STORY_SECTION,
+        "tarantino": _TARANTINO_SECTION,
+        "artist_narrative": _ARTIST_NARRATIVE_SECTION,
+        "booking": _BOOKING_SECTION,
+        "community": _COMMUNITY_SECTION,
+    }
+    preset_section = sections.get(preset, "")
 
     return f"""You are an expert video editor and creative director specializing in techno/electronic music content for Instagram Reels.
 
@@ -617,7 +687,10 @@ PRESET DEFINITIONS:
 - "moody": Slower cuts, atmospheric, BREAKDOWN + LIGHT_SHOW heavy
 - "pov_story": POV / "A Day in the Life" — story-driven vlog reel (before → during → after a gig) with an anti-advice text hook in the first 3s
 - "tarantino": Non-linear, brutalist techno edit — climax first (in media res), then chronological flashback (tech-noir, hard beat-cuts), buildup, escalation
-{pov_section}{tarantino_section}
+- "artist_narrative": Story-weapon for reach — sarcastic/deep POV hook, desaturated grind (journey), then explode into the club at the drop
+- "booking": Promoter showcase / business card — pure professionalism, mixer technique + packed crowd, no private scenes, relentless escalation
+- "community": Behind-the-scenes for fans — chronological, looser, crew/candid moments, the "private Patrick vs machine DAY SHØ" contrast
+{preset_section}
 You MUST respond with ONLY valid JSON in this exact format (no markdown fences, no commentary):
 {{
   "clips": [
@@ -640,8 +713,8 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown fences, 
 }}
 
 SCHEMA NOTES:
-- "phase": pov_story → "before" | "during" | "after"; tarantino → "hook" | "flashback" | "buildup" | "escalation"; "" for all other presets.
-- "hook_text": the anti-advice hook line; REQUIRED (non-empty) for pov_story, "" otherwise."""
+- "phase": pov_story / community → "before" | "during" | "after"; tarantino → "hook" | "flashback" | "buildup" | "escalation"; artist_narrative → "hook" | "journey" | "escalation"; booking → "opener" | "showcase" | "peak"; "" for all other presets.
+- "hook_text": REQUIRED (non-empty) for pov_story and artist_narrative; optional for community; "" otherwise."""
 
 
 # ---------------------------------------------------------------------------
@@ -1043,7 +1116,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("analysis_json", help="Path to analysis JSON file")
     parser.add_argument("--preset", "-p", default="highlight",
-                        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino"])
+                        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino", "artist_narrative", "booking", "community"])
     parser.add_argument("--duration", "-d", type=float, default=60.0)
     parser.add_argument("--provider", choices=["claude", "gemini", "deepseek", "auto"],
                         default="auto", help="AI provider (default: auto)")

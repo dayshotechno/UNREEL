@@ -74,8 +74,11 @@ Ergebnis in `output/`:
 | `moody` | Atmosphärisch, langsame Cuts, `BREAKDOWN`+`LIGHT_SHOW` | 60 s |
 | `pov_story` | **„A Day in the Life"**: before → during → after + Anti-Advice-Hook | 30–60 s |
 | `tarantino` | **Retention-Pipeline**: 30s Reel mit 4 Phasen (hook/flashback/buildup/escalation), setzt `--jcut` + `--endcard` automatisch | 30 s (fest) |
+| `artist_narrative` | **Story-Waffe** (Reichweite): sarkastischer POV-Hook, entsättigter „Grind" (journey) → Explosion in den Club beim Drop. Auto `--jcut` + `--endcard` | 15–45 s |
+| `booking` | **Promoter-Schaufenster**: pure Professionalität, Mixer-Technik + volle Crowd, keine privaten Szenen, kompromisslose Eskalation. Auto `--endcard` | 15–45 s |
+| `community` | **Behind-the-Scenes** (Fans): chronologisch, lockerer, Crew/Candid, Kontrast „privater Patrick vs. Maschine DAY SHØ" | 15–45 s |
 
-**Tarantino-Preset** erfordert eine Musikdatei (`--music`). Der Drop der Musik wird automatisch mit dem Video-Drop synchronisiert. Die Reel-Länge wird auf 30 s gesetzt, unabhängig von `-d`.
+**Retention-Presets** (`tarantino`, `artist_narrative`, `booking`, `community`) zielen auf 15–45 s; ohne `-d` werden 30 s genutzt. Der Drop deiner `--music` wird automatisch auf den Energie-Peak des Reels gelegt. `tarantino` ist fest 30 s.
 
 ---
 

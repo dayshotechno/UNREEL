@@ -46,6 +46,14 @@ from ingest import ingest_directory
 
 logger = logging.getLogger("unreel")
 
+# Retention-focused presets default to a 15–45s reel (30s when -d is left at
+# the 60s default). Music behaviour is auto-tuned per preset:
+#   J-cut (muffled bass → drop) fits the build→explode narratives.
+#   Endcard (logo) fits the branded/promo presets, not the casual community one.
+_RETENTION_PRESETS = {"artist_narrative", "booking", "community"}
+_AUTO_JCUT_PRESETS = {"tarantino", "artist_narrative"}
+_AUTO_ENDCARD_PRESETS = {"tarantino", "booking", "artist_narrative"}
+
 
 # ---------------------------------------------------------------------------
 # Pipeline Phases
@@ -1210,6 +1218,11 @@ def run_pipeline(
         if preset == "tarantino" and duration != 30.0:
             logger.info(f"Tarantino preset: forcing reel duration 30.0s (was {duration:.0f}s)")
             duration = 30.0
+        # Retention presets target 15–45s; if -d was left at the 60s default,
+        # use a sensible 30s. An explicit -d in range is respected.
+        elif preset in _RETENTION_PRESETS and duration == 60.0:
+            logger.info(f"{preset} preset: defaulting reel duration to 30.0s (pass -d 15..45 to override)")
+            duration = 30.0
 
         # Füge Musik-Analyse + pro-Video Audio-Analyse zum Context hinzu
         p2 = all_results.get("phase_2") or {}
@@ -1286,8 +1299,8 @@ def run_pipeline(
             sync_data=sync_data,
             music_path=music,
             vision_data=all_results.get("phase_2"),
-            jcut=jcut or preset == "tarantino",
-            endcard=endcard or preset == "tarantino",
+            jcut=jcut or preset in _AUTO_JCUT_PRESETS,
+            endcard=endcard or preset in _AUTO_ENDCARD_PRESETS,
             input_dir=input_dir,
         )
 
@@ -1334,7 +1347,7 @@ Examples:
     )
     parser.add_argument(
         "--preset", "-p",
-        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino"],
+        choices=["highlight", "drop_focus", "seamless_loop", "moody", "pov_story", "tarantino", "artist_narrative", "booking", "community"],
         default="highlight",
         help="Edit preset style (default: highlight)",
     )
