@@ -505,66 +505,58 @@ Make the hook thematically connect to what actually happens in the chosen clips.
 
 
 _TARANTINO_SECTION = """
-TARANTINO / RETENTION-PIPELINE MODE (preset = tarantino) — this OVERRIDES the generic editing rules above.
-This is a precision‑timed, algorithm‑driven reel based on the "Retention‑Pipeline" dramaturgy.
-The reel is exactly 15 seconds long, segmented into four phases that maximise anti‑scroll retention.
-The analysis data includes "music_analysis" with "drop_times" (seconds at which the music track's drops occur).
-Use the FIRST drop_time (the "final drop") to calibrate the phases: Phase 4 (Payload) must hit exactly at that drop time.
-If no music_analysis is present, default fallback: final drop at 11.0s.
+TARANTINO / PERSONALISED RETENTION-PIPELINE MODE (preset = tarantino) — this OVERRIDES the generic editing rules above.
+This is a precision‑timed reel based on the four‑phase "Retention‑Pipeline" dramaturgy.
+The reel is exactly 30 seconds long. The analysis data includes "music_analysis" with "drop_times".
+If the music analysis contains a drop time (drop_times[0]), phase 4 (escalation) MUST start exactly at that drop time.
+If no music_analysis is present, the default final drop time is 12.0s.
 
 ABSOLUTE TIMELINE (each clip's "phase" field must be set accordingly):
 
-1. "hook" (0.0s – 2.0s) — PATTERN INTERRUPT
-   START IN MEDIA RES. No intro, no warning – fire the most intense club shot instantly,
-   paired with the hardest bass kick of the track. 100% visual stimulus.
+1. "hook" (0.0s – 3.0s) — PATTERN INTERRUPT (BEAT-SYNC, 1/4 NOTES)
+   START IN MEDIA RES. No intro, no warning – fire the most intense club shot instantly.
+   EVERY kick drum = ONE cut. That is fast enough to show energy, but still readable.
    Content: deep red light, strobes, you at the decks, crowd going off (CROWD_ENERGY / LIGHT_SHOW).
-   Clip duration: exactly 2.0s. Fast, but readable. LUT: "underground_dark" or "neon_nights".
-   VFX: "flash" on the hardest hit.
+   Clip duration: multiples of a 1/4 note at the track BPM (use subdivision_grid). 
+   LUT: "underground_dark" or "neon_nights". VFX: "flash" on the hardest hit.
 
-2. "flashback" (2.0s – 7.0s) — DOPAMIN RESET
-   HARD CONTRAST to the hook. Drop visual energy to 30%. Slow, mechanical, almost monochrome shots
-   (train, walking, field, outdoor). Stoic, evenly‑spaced cuts. The J‑cut lowpass audio (muffled bass
-   underneath) signals: something massive is coming.
+2. "flashback" (3.0s – 8.0s) — DOPAMIN RESET (HALF-TIME, 1/2 NOTES TO WHOLE BARS)
+   HARD CONTRAST to the hook. Drop visual energy drastically. Use long, stoic, almost monochrome shots
+   (train, walking, field, outdoor). Let clips breathe for 2 beats (1/2 note) or even 4 beats (one bar).
+   The quiet images feel oppressive because the muffled bass (J‑cut lowpass) rumbles underneath.
    Content: ARRIVAL / BACKSTAGE / outdoor. Chronological backstory.
-   Clip duration: 5.0s total – use longer clips (1.5–2.5s each) with minimal movement.
+   Clip duration: "1/2_half" or "1/1_bar" values from subdivision_grid. NO fast cutting here.
    LUT: "tech_noir" (cold, monochrome, high-contrast). VFX: "none".
 
-3. "buildup" (7.0s – 11.0s) — EXPONENTIAL BUILD‑UP
-   Mathematical acceleration of visual stimuli. Mirror a snare‑roll: halve cut distances progressively.
-   Start with 1/2‑beat cuts, then 1/4, then 1/8. The visual rhythm tightens exactly as the music does.
-   Apply OPEN GFX overlays (flashing timecodes, certification symbols, wireframes) – increase density
-   with cut frequency. Visual stimulus ramps from 30% to 90%.
+3. "buildup" (8.0s – 12.0s) — SNARE‑ROLL ACCELERATION (1/4 → 1/8 NOTES)
+   The track rolls toward the drop. Mirror the tension with accelerating cut frequency.
+   START with 1/4‑note cuts, and in the LAST TWO BARS before the drop switch to double‑time (1/8 notes).
+   This is the visual "snare roll" – the rhythm tightens exactly as the music does.
    Content: branding shots – artist unapproachable: hands on mixer, adjusting glasses, looking into
-   camera, back shots (DJ_SETUP). LUT: "tech_noir". The LAST clip (transition into Phase 4) must be
-   a cut from daylight to club → VFX: "glitch" (black‑frame stutter).
+   camera, back shots (DJ_SETUP). Cut them rhythmically, getting faster.
+   LUT: "tech_noir". The LAST clip that transitions into Phase 4 → VFX: "glitch" (black‑frame stutter).
 
-4. "escalation" (11.0s – 15.0s) — PAYLOAD & LOOP TRIGGER
-   THE DROP. Exactly at the final drop time (from music_analysis.drop_times[0] or default 11.0s).
-   Strobes, crowd, you at the decks. Cuts are now asymmetrical and aggressive.
-   Full energy (120%). On the very last beat, freeze the image and cut your logo ("DAY SHØ")
-   with hard diagonal tally‑marks. Then the video seamlessly loops back to the start.
-   Content: CROWD_ENERGY / LIGHT_SHOW / DJ_SETUP – pure chaos.
-   Clip duration: 4.0s total. LUT: "underground_dark" / "neon_nights".
-   VFX: "pump" on driving kicks, "flash" on the hardest drops. The very last clip of this phase
-   stops abruptly (freeze frame) and must be set up to loop back visually (e.g. start of Phase 1
-   clip appears again).
+4. "escalation" (12.0s – 30.0s) — DOUBLE‑TIME MASSACRE (1/8 BASE + 1/16 GLITCHES)
+   THE DROP. Bass hits, filter opens. Full 1/8‑note cutting as baseline.
+   For absolute peaks (drops, strobes) insert ultra‑short 1/16‑note micro‑cuts (≈0.1s) – percussive
+   visual glitches, not meant to be fully readable, just felt.
+   Content: hands on XONE mixer, sweating crowd, strobes, chaos (CROWD_ENERGY / LIGHT_SHOW / DJ_SETUP).
+   LUT: "underground_dark" / "neon_nights". VFX: "pump" on driving kicks, "flash" on hardest drops.
 
 MUSIC DROP ALIGNMENT:
-If music_analysis.drop_times is available, the "final drop" time is drop_times[0].
-Adjust the "escalation" phase start to exactly that time (if it deviates from 11.0s).
-The preceding phases keep their absolute durations (2s, 5s, 4s) – only the escalation phase
-may start a fraction earlier/later if the drop is not exactly at 11.0s. Example:
-  - drop_times[0] = 10.5s → escalation starts at 10.5s, Phase 3 ends at 10.5s (shortened).
-  - drop_times[0] = 11.5s → escalation starts at 11.5s, Phase 3 extends to 11.5s.
-Total reel duration remains 15.0s by extending/clipping the escalation end.
+If music_analysis.drop_times is available, the "final drop" time = drop_times[0].
+Phase 3 (buildup) ends at the later of 12.0s or (drop_time – 2.0s) – this ensures at least
+two bars of buildup before the drop. Phase 4 (escalation) starts at drop_time and stretches
+to 30.0s. If no drop_time, default drop = 12.0s.
 
 DURATION MATH:
-The reel must be exactly 15.0s. The four phases occupy:
-  hook:        0.0 –  2.0 = 2.0s
-  flashback:   2.0 –  7.0 = 5.0s
-  buildup:     7.0 – 11.0 (or drop_time) = 4.0s (or variable)
-  escalation:  drop_time – 15.0 = variable
-If no music_analysis, use 11.0s as default drop_time.
+The reel is exactly 30.0s. The four phases occupy:
+  hook:        0.0 –  3.0 = 3.0s  (fixed)
+  flashback:   3.0 –  8.0 = 5.0s  (fixed)
+  buildup:     8.0 – drop_time   = variable (minimum 4.0s)
+  escalation:  drop_time – 30.0  = variable (at least 4.0s)
+If drop_time < 8.0, clamp buildup start to 8.0 (so phase 2 stays intact) and let escalation
+absorb the remaining time.
 
 MATCH CUTS (Bewegungsschnitt):
 Find SIMILAR MOVEMENTS across different scenes and cut IN THE MIDDLE OF THE MOTION:
