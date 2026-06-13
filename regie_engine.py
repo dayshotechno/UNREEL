@@ -507,8 +507,10 @@ Make the hook thematically connect to what actually happens in the chosen clips.
 _TARANTINO_SECTION = """
 TARANTINO / PERSONALISED RETENTION-PIPELINE MODE (preset = tarantino) — this OVERRIDES the generic editing rules above.
 This is a precision‑timed reel based on the four‑phase "Retention‑Pipeline" dramaturgy.
-The reel is exactly 30 seconds long. The analysis data includes "music_analysis" with "drop_times".
-If the music analysis contains a drop time (drop_times[0]), phase 4 (escalation) MUST start exactly at that drop time.
+The reel is exactly 30 seconds long. The analysis data includes "music_analysis" with "drop_times",
+where each entry is an object {"time": seconds, "intensity": 0..1}.
+If a drop exists, the final drop time = drop_times[0].time (the "time" field of the FIRST entry) and
+phase 4 (escalation) MUST start exactly at that time.
 If no music_analysis is present, the default final drop time is 12.0s.
 
 ABSOLUTE TIMELINE (each clip's "phase" field must be set accordingly):
@@ -544,7 +546,8 @@ ABSOLUTE TIMELINE (each clip's "phase" field must be set accordingly):
    LUT: "underground_dark" / "neon_nights". VFX: "pump" on driving kicks, "flash" on hardest drops.
 
 MUSIC DROP ALIGNMENT:
-If music_analysis.drop_times is available, the "final drop" time = drop_times[0].
+If music_analysis.drop_times is available, the "final drop" time = drop_times[0].time
+(each drop_times entry is {"time": seconds, "intensity": 0..1}).
 Phase 3 (buildup) ends at the later of 12.0s or (drop_time – 2.0s) – this ensures at least
 two bars of buildup before the drop. Phase 4 (escalation) starts at drop_time and stretches
 to 30.0s. If no drop_time, default drop = 12.0s.
@@ -559,6 +562,8 @@ If drop_time < 8.0, clamp buildup start to 8.0 (so phase 2 stays intact) and let
 absorb the remaining time.
 
 MATCH CUTS (Bewegungsschnitt):
+The analysis data field "clip_scenes" maps each clip filename to {"tags", "scenes"} where "scenes"
+are short per-frame descriptions. USE these descriptions to find pairs of clips with similar motion.
 Find SIMILAR MOVEMENTS across different scenes and cut IN THE MIDDLE OF THE MOTION:
 - Adjusting glasses/hat outdoors → hand reaching for the XONE mixer or CDJs in the club
 - Walking forward on the street → leaning forward over the decks
