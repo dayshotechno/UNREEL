@@ -789,21 +789,40 @@ def _parse_edit_plan(raw: str, provider_name: str = "", model_id: str = "") -> E
 # Data trimming for context limits
 # ---------------------------------------------------------------------------
 
-def _trim_analysis_for_prompt(data: dict, max_beats: int = 200) -> dict:
-    """Trim large analysis data to fit within API context limits."""
-    trimmed = {}
+# Per-frame envelopes / internal arrays the LLM cannot use but which blow the
+# context window (energy_envelope alone was ~10 MB across 83 clips). Dropped
+# recursively before sending. Curated equivalents (clip_scenes, subdivision_grid,
+# the music_summary, bass_drops/buildups) carry the usable information instead.
+_HEAVY_KEYS = {
+    "energy_envelope", "energy_times", "onset_env",
+    "beat_times", "subbass_energy", "bass_energy",
+    "dhash_sig", "vision_tags", "vision_tags_filtered",
+}
 
-    for key, value in data.items():
-        if isinstance(value, list) and len(value) > max_beats:
-            half = max_beats // 2
-            quarter = max_beats // 4
-            trimmed[key] = value[:half] + ["..."] + value[-quarter:]
-        elif isinstance(value, dict):
-            trimmed[key] = value
-        else:
-            trimmed[key] = value
 
-    return trimmed
+def _trim_analysis_for_prompt(data, max_list: int = 80):
+    """Recursively trim analysis data so it fits the API context window.
+
+    Drops known-heavy per-frame arrays (`_HEAVY_KEYS`) at any depth and
+    truncates any remaining long list to head+tail. Nested dicts (e.g. the
+    per-clip phase_2 entries) are now traversed — the old version kept them
+    whole, which let the per-clip audio envelopes overflow the context.
+    """
+    if isinstance(data, dict):
+        out = {}
+        for key, value in data.items():
+            if key in _HEAVY_KEYS:
+                continue
+            out[key] = _trim_analysis_for_prompt(value, max_list)
+        return out
+    if isinstance(data, list):
+        if len(data) > max_list:
+            head = max_list * 3 // 4
+            tail = max_list // 4
+            kept = data[:head] + [f"...({len(data) - max_list} more)"] + data[-tail:]
+            return [_trim_analysis_for_prompt(x, max_list) for x in kept]
+        return [_trim_analysis_for_prompt(x, max_list) for x in data]
+    return data
 
 
 # ---------------------------------------------------------------------------
