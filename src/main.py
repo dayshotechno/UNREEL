@@ -1204,16 +1204,23 @@ def run_pipeline(
 
     # Phase 3: AI Regie (multi-provider)
     if phases is None or "regie" in phases:
-        # Tarantino preset: force 30s reel (personalised retention-pipeline)
-        if preset == "tarantino" and duration == 60.0:  # only override if default
-            logger.info("Tarantino preset: setting reel duration to 30.0s (personalised Retention-Pipeline)")
+        # Tarantino preset: the prompt's phase timeline is hardcoded to 30s, so
+        # the reel is ALWAYS 30s regardless of -d (matches COMMANDS.md). Without
+        # this, e.g. -d 45 would feed the LLM contradictory durations.
+        if preset == "tarantino" and duration != 30.0:
+            logger.info(f"Tarantino preset: forcing reel duration 30.0s (was {duration:.0f}s)")
             duration = 30.0
 
         # Füge Musik-Analyse + pro-Video Audio-Analyse zum Context hinzu
         p2 = all_results.get("phase_2") or {}
         music_analysis = p2.get("music_analysis") if isinstance(p2, dict) else None
         if music_analysis and "error" not in music_analysis:
-            all_results = {**all_results, "music_analysis": music_analysis}
+            # The LLM only needs the timing data, NOT the per-frame energy
+            # envelopes (subbass_/bass_energy are thousands of points each →
+            # would blow the prompt's token budget). Send a slimmed copy.
+            slim = {k: v for k, v in music_analysis.items()
+                    if k not in ("subbass_energy", "bass_energy")}
+            all_results = {**all_results, "music_analysis": slim}
             logger.info(f"  Music analysis available: BPM={music_analysis.get('bpm', '?')}, "
                         f"{len(music_analysis.get('drop_times', []))} drops, "
                         f"{len(music_analysis.get('kick_times', []))} kicks")

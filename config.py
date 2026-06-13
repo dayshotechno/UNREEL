@@ -37,6 +37,14 @@ SUPPORTED_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mp3",
 # ---------------------------------------------------------------------------
 
 SAMPLE_RATE = 44100
+# V2 analysis modules (audio_analyzer, highlight_engine) reference these names.
+AUDIO_SAMPLE_RATE = SAMPLE_RATE  # alias kept for the V2 analyzer modules
+HOP_LENGTH = 512                 # librosa STFT/onset hop (≈11.6 ms @ 44.1 kHz)
+ENERGY_THRESHOLD_PERCENTILE = 75  # energy-peak gate used by analyze_audio
+BASS_FREQ_MAX = 200              # Hz – upper bound of the bass/kick band
+BUILDUP_WINDOW_SEC = 4.0         # window for buildup/drop energy ramp detection
+MIN_DROP_ENERGY_RATIO = 1.8      # bass energy jump factor that counts as a drop
+TEMP_DIR = OUTPUT_DIR            # scratch dir for extracted per-clip audio (.wav)
 AUDIO_SYNC_OUTPUT = OUTPUT_DIR / "audio_sync.json"
 PERCUSSION_OUTPUT = OUTPUT_DIR / "percussion_map.json"
 
