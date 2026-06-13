@@ -70,40 +70,68 @@ def phase_0_setup():
     return luts
 
 
-def phase_1_sync(video_paths: list[Path]) -> dict:
-    """Phase 1: Audio Cross-Correlation Sync + Kick/Snare Detection."""
+_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".aif"}
+
+
+def phase_1_sync(video_paths: list[Path], music_path: Path | None = None) -> dict:
+    """Phase 1: Audio Cross-Correlation Sync + Kick/Snare Detection.
+
+    If `music_path` is given (--music), or an audio-only file is found in
+    `video_paths`, that file is used for BPM/kick/snare detection instead of
+    the camera scratch audio. Video sync offsets still run on video clips only.
+    """
     logger.info("=" * 60)
     logger.info("PHASE 1: Audio Sync & Percussion Detection")
     logger.info("=" * 60)
 
     result = {}
 
-    # Audio sync (only if multiple clips)
-    if len(video_paths) >= 2:
+    # Separate video clips from audio-only files in the input list
+    videos_only = [p for p in video_paths if p.suffix.lower() not in _AUDIO_EXTENSIONS]
+    audio_files = [p for p in video_paths if p.suffix.lower() in _AUDIO_EXTENSIONS]
+
+    # Audio sync (only if multiple VIDEO clips)
+    if len(videos_only) >= 2:
         sync_result = sync_all_clips(
-            [str(p) for p in video_paths],
+            [str(p) for p in videos_only],
             sr=SAMPLE_RATE,
             output_path=OUTPUT_DIR / "audio_sync.json",
         )
         result["sync"] = sync_result.to_dict()
         ref_path = sync_result.reference_clip
-    else:
-        ref_path = str(video_paths[0])
+    elif videos_only:
+        ref_path = str(videos_only[0])
         result["sync"] = {"reference_clip": ref_path, "offsets": {ref_path: 0.0}}
+    else:
+        ref_path = str(video_paths[0]) if video_paths else ""
+        result["sync"] = {"reference_clip": ref_path, "offsets": {}}
 
-    # Kick/Snare detection on reference clip
-    logger.info("\nDetecting kicks & snares on reference clip...")
-    percussion = detect_kicks_snares(ref_path, sr=SAMPLE_RATE)
+    # Determine the best audio source for percussion analysis:
+    # Priority: --music track > audio files in input > reference video clip
+    percussion_source = ref_path
+    percussion_label = "reference video (camera audio)"
+
+    if music_path and Path(music_path).exists():
+        percussion_source = str(music_path)
+        percussion_label = f"music track: {Path(music_path).name}"
+    elif audio_files:
+        percussion_source = str(audio_files[0])
+        percussion_label = f"input audio: {audio_files[0].name}"
+
+    # Kick/Snare/BPM detection on the best audio source
+    logger.info(f"\nPercussion analysis source: {percussion_label}")
+    percussion = detect_kicks_snares(percussion_source, sr=SAMPLE_RATE)
     percussion.save(OUTPUT_DIR / "percussion_map.json")
     result["percussion"] = percussion.to_dict()
     result["beat_grid"] = get_beat_grid(percussion)
 
-    logger.info(f"\n  Reference: {Path(ref_path).name}")
+    logger.info(f"\n  Source: {Path(percussion_source).name}")
     logger.info(f"  BPM: {percussion.bpm:.1f}")
     logger.info(f"  Kicks: {len(percussion.kicks)}")
     logger.info(f"  Snares: {len(percussion.snares)}")
 
     return result
+
 
 
 def _video_signature(video_path: str) -> list[int | None] | None:
@@ -251,6 +279,31 @@ def phase_2_analyze(video_paths: list[Path], existing: dict | None = None, save_
     return result
 
 
+def _build_subdivision_grid(bpm: float, duration: float) -> dict:
+    """Berechnet Zeitpunkte für Notenwerte basierend auf BPM.
+
+    Gibt der AI exakte Sekunden-Dauern für 1/4, 1/2, 1/8, 1/16 Noten
+    und ganze Takte, plus quantisierte Schnittpunkte auf 1/4 und 1/8.
+    """
+    if bpm <= 0:
+        return {}
+    beat_sec = 60.0 / bpm  # 1/4-Note in Sekunden
+    return {
+        "bpm": round(bpm, 1),
+        "note_durations": {
+            "1/1_bar":  round(beat_sec * 4, 3),
+            "1/2_half": round(beat_sec * 2, 3),
+            "1/4_beat": round(beat_sec, 3),
+            "1/8_eighth": round(beat_sec / 2, 3),
+            "1/16_sixteenth": round(beat_sec / 4, 3),
+        },
+        "cut_points_1_4": [round(i * beat_sec, 3)
+                           for i in range(int(duration / beat_sec) + 1)],
+        "cut_points_1_8": [round(i * beat_sec / 2, 3)
+                           for i in range(int(duration / (beat_sec / 2)) + 1)],
+    }
+
+
 def phase_3_regie(
     analysis_data: dict,
     preset: str,
@@ -292,6 +345,32 @@ def phase_3_regie(
                 durations[Path(vp_str).name] = round(d, 2)
     if durations:
         analysis_data = {**analysis_data, "clip_durations": durations}
+
+    # Notenbasiertes Beat-Grid für den AI-Provider (Pacing per Phase)
+    perc = analysis_data.get("phase_1", {}).get("percussion", {})
+    bpm = perc.get("bpm", 0)
+    if bpm > 0:
+        grid = _build_subdivision_grid(bpm, duration)
+        analysis_data = {**analysis_data, "subdivision_grid": grid}
+        logger.info(f"  Beat-Grid: {bpm:.0f} BPM → 1/4={grid['note_durations']['1/4_beat']}s, "
+                    f"1/8={grid['note_durations']['1/8_eighth']}s, "
+                    f"1/16={grid['note_durations']['1/16_sixteenth']}s")
+
+    # Kompakte Szenen-Beschreibungen pro Clip für Match-Cut-Erkennung
+    clip_scenes = {}
+    for vp_str, entry in p2.items():
+        if not isinstance(entry, dict):
+            continue
+        tags = entry.get("vision_tags_filtered") or entry.get("vision_tags") or []
+        descriptions = [t.get("description", "") for t in tags if t.get("description")]
+        if descriptions:
+            clip_scenes[Path(vp_str).name] = {
+                "tags": list({t.get("tag") for t in tags if t.get("tag")}),
+                "scenes": descriptions[:5],
+            }
+    if clip_scenes:
+        analysis_data = {**analysis_data, "clip_scenes": clip_scenes}
+        logger.info(f"  Clip-Scenes: {len(clip_scenes)} clips with descriptions for match-cut analysis")
 
     # Seamless loop (algorithmic, no AI needed)
     if preset == "seamless_loop":
@@ -476,6 +555,7 @@ def phase_5_assembly(
     vision_data: dict | None = None,
     jcut: bool = False,
     endcard: bool = False,
+    input_dir: Path | None = None,
 ) -> None:
     """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio.
 
@@ -517,7 +597,7 @@ def phase_5_assembly(
     results: dict[int, Path] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(_export_one_snippet, i, clip, sync_data): i
+            pool.submit(_export_one_snippet, i, clip, sync_data, input_dir): i
             for i, clip in enumerate(clips)
         }
         for fut in as_completed(futures):
@@ -553,7 +633,7 @@ def phase_5_assembly(
         _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data, jcut=jcut)
 
 
-def _export_one_snippet(i: int, clip: dict, sync_data: dict | None) -> Path | None:
+def _export_one_snippet(i: int, clip: dict, sync_data: dict | None, input_dir: Path | None = None) -> Path | None:
     """Export a single edit-plan clip to output/snippet_<idx>_<stem>.mp4.
 
     Thread-safe: YOLO tracking and its cache are serialized via _TRACKING_LOCK
@@ -569,9 +649,19 @@ def _export_one_snippet(i: int, clip: dict, sync_data: dict | None) -> Path | No
     slow_mo_factor = clip.get("slow_mo_factor", 1.0)
     crop = clip.get("crop", "9:16")
 
-    if not Path(video).exists():
+    video_path = Path(video)
+    if not video_path.exists():
+        # Fallback to input_dir or INPUT_DIR
+        if input_dir and (input_dir / video_path.name).exists():
+            video_path = input_dir / video_path.name
+        elif (INPUT_DIR / video_path.name).exists():
+            video_path = INPUT_DIR / video_path.name
+
+    if not video_path.exists():
         logger.warning(f"  Source not found: {video}")
         return None
+        
+    video = str(video_path)
 
     # Master Audio Sync Logic
     master_audio = None
@@ -1000,6 +1090,18 @@ def run_pipeline(
     input_dir.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Resolve --music path: try as-is, then input_dir, then INPUT_DIR
+    if music is not None and not Path(music).exists():
+        for candidate_dir in [input_dir, INPUT_DIR]:
+            candidate = candidate_dir / Path(music).name
+            if candidate.exists():
+                logger.info(f"Music track found at {candidate}")
+                music = candidate
+                break
+        if not Path(music).exists():
+            logger.warning(f"Music file not found: {music}")
+
+
     # Phase 0: Ingestion & Renaming (Dedup + UNREEL_<timestamp>) yields the clip list
     video_paths = phase_ingest(input_dir)
 
@@ -1126,6 +1228,7 @@ def run_pipeline(
             vision_data=all_results.get("phase_2"),
             jcut=jcut or preset == "tarantino",
             endcard=endcard or preset == "tarantino",
+            input_dir=input_dir,
         )
 
     # Final save
