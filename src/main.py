@@ -53,6 +53,9 @@ logger = logging.getLogger("unreel")
 _RETENTION_PRESETS = {"artist_narrative", "booking", "community"}
 _AUTO_JCUT_PRESETS = {"tarantino", "artist_narrative"}
 _AUTO_ENDCARD_PRESETS = {"tarantino", "booking", "artist_narrative"}
+# Invisible sound design (riser → drop + sub-impact) fits the presets with a
+# clear drop payoff. Needs --music to have something to mix over.
+_AUTO_SFX_PRESETS = {"tarantino", "artist_narrative"}
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +598,7 @@ def phase_5_assembly(
     vision_data: dict | None = None,
     jcut: bool = False,
     endcard: bool = False,
+    sfx: bool = False,
     input_dir: Path | None = None,
 ) -> None:
     """Phase 5: FFmpeg Assembly – Export with 3D-LUT, VFX, and optional master audio.
@@ -670,7 +674,7 @@ def phase_5_assembly(
 
     # Optional: lay a chosen music track over the finished reel
     if music_path is not None and final_reel is not None:
-        _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data, jcut=jcut)
+        _apply_music_bed(Path(final_reel), Path(music_path), clips, vision_data, jcut=jcut, sfx=sfx)
 
 
 def _export_one_snippet(i: int, clip: dict, sync_data: dict | None, input_dir: Path | None = None) -> Path | None:
@@ -1033,7 +1037,7 @@ def _probe_duration(path: Path) -> float:
 def _apply_music_bed(
     reel_path: Path, music_path: Path,
     clips: list[dict], vision_data: dict | None,
-    jcut: bool = False,
+    jcut: bool = False, sfx: bool = False,
 ) -> None:
     """
     Replace the reel's audio with `music_path`, aligning the track's drop to
@@ -1043,6 +1047,10 @@ def _apply_music_bed(
     ("through the club door") until the drop lands on the reel peak, then the
     filter is removed and the full track slams in – building tension across
     the flashback before the visual arrival in the club.
+
+    When `sfx` is set, synthetic "invisible" sound design is mixed in: a noise
+    riser crescendoing into the drop and a sub-bass impact ON the drop. Both
+    are generated in FFmpeg (no assets), positioned via the reel peak time.
     """
     if not music_path.exists():
         logger.warning(f"Music file not found: {music_path} – keeping original audio")
@@ -1085,17 +1093,48 @@ def _apply_music_bed(
     af_chain = ",".join(af_parts)
 
     tmp_path = reel_path.with_name(reel_path.stem + "_music.mp4")
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(reel_path),
-        "-ss", f"{music_start:.3f}", "-i", str(music_path),
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-af", af_chain,
-        "-shortest", "-movflags", "+faststart",
-        str(tmp_path),
-    ]
+
+    use_sfx = sfx and peak_t > 0.5
+    if use_sfx:
+        # Synthetic SFX, positioned by the reel peak. Riser ends ON the drop;
+        # impact hits ON the drop. Mixed over the (jcut/faded) music. Levels
+        # kept modest so it's felt, not heard – amix normalize=0 = additive.
+        riser_start_ms = int(max(0.0, peak_t - 2.5) * 1000)
+        peak_ms = int(peak_t * 1000)
+        filter_complex = (
+            f"[1:a]{af_chain},aformat=channel_layouts=stereo[mus];"
+            f"[2:a]highpass=f=300,volume='pow(t/2.5,2.5)':eval=frame,volume=0.30,"
+            f"adelay={riser_start_ms}:all=1,aformat=channel_layouts=stereo[r];"
+            f"[3:a]volume='exp(-t*6)':eval=frame,volume=3.0,"
+            f"adelay={peak_ms}:all=1,aformat=channel_layouts=stereo[i];"
+            f"[mus][r][i]amix=inputs=3:normalize=0:duration=first[a]"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(reel_path),
+            "-ss", f"{music_start:.3f}", "-i", str(music_path),
+            "-f", "lavfi", "-i", "anoisesrc=c=pink:d=2.5:a=0.7",
+            "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*48*t)+0.5*sin(2*PI*80*t)':d=0.8",
+            "-filter_complex", filter_complex,
+            "-map", "0:v:0", "-map", "[a]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart",
+            str(tmp_path),
+        ]
+        logger.info(f"  🔊 SFX: riser → drop @ {peak_t:.1f}s + sub-impact")
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(reel_path),
+            "-ss", f"{music_start:.3f}", "-i", str(music_path),
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-af", af_chain,
+            "-shortest", "-movflags", "+faststart",
+            str(tmp_path),
+        ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode == 0:
@@ -1124,6 +1163,7 @@ def run_pipeline(
     music: Path | None = None,
     jcut: bool = False,
     endcard: bool = False,
+    sfx: bool = False,
 ):
     """Run the complete UNREEL V3 pipeline."""
     # Ensure directories exist
@@ -1301,6 +1341,7 @@ def run_pipeline(
             vision_data=all_results.get("phase_2"),
             jcut=jcut or preset in _AUTO_JCUT_PRESETS,
             endcard=endcard or preset in _AUTO_ENDCARD_PRESETS,
+            sfx=sfx or preset in _AUTO_SFX_PRESETS,
             input_dir=input_dir,
         )
 
@@ -1394,6 +1435,12 @@ Examples:
              "Auto-on for the tarantino preset.",
     )
     parser.add_argument(
+        "--sfx",
+        action="store_true",
+        help="Mix synthetic invisible sound design (noise riser into the drop "
+             "+ sub-bass impact). Needs --music. Auto-on for tarantino/artist_narrative.",
+    )
+    parser.add_argument(
         "--phase",
         nargs="*",
         choices=["setup", "sync", "vision", "regie", "copy", "export", "analyze"],
@@ -1437,6 +1484,7 @@ Examples:
         music=args.music,
         jcut=args.jcut,
         endcard=args.endcard,
+        sfx=args.sfx,
     )
 
 

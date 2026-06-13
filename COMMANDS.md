@@ -56,6 +56,7 @@ Ergebnis in `output/`:
 | `--music` | Pfad | Musik-Track als Hintergrundaudio (ersetzt Original) |
 | `--jcut` | – | J-Cut + Lowpass: Musik dumpf bis zum Drop, dann voll |
 | `--endcard` | – | Brutalistisches Logo-Endcard anhängen |
+| `--sfx` | – | Unsichtbares Sounddesign: Noise-Riser in den Drop + Sub-Impact (braucht `--music`) |
 | `--phase` | `setup`, `sync`, `vision`, `regie`, `copy`, `export`, `analyze` | Nur bestimmte Phasen ausführen |
 | `--luts` | – | Nur LUTs erzeugen und beenden |
 | `-v, --verbose` | – | Ausführliche Debug-Ausgaben |
