@@ -385,15 +385,17 @@ class DeepSeekProvider:
         # hitting the 8192 max_tokens limit before outputting the JSON.
         system_prompt += "\n\nCRITICAL: You are running in a constrained environment. Skip detailed step-by-step reasoning. Output the JSON response immediately."
 
-        response = client.chat.completions.create(
-            model=self._model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[
+        kwargs = {
+            "model": self._model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_data},
             ],
-        )
+        }
+
+        response = client.chat.completions.create(**kwargs)
 
         # DeepSeek might return the actual JSON in content, or if it's a reasoning
         # model that failed to finish, content might be None. Handle None gracefully.
@@ -848,7 +850,7 @@ _HEAVY_KEYS = {
     "energy_envelope", "energy_times", "onset_env",
     "beat_times", "subbass_energy", "bass_energy",
     "dhash_sig", "vision_tags", "vision_tags_filtered",
-    "energy_peaks", "transient_times"
+    "energy_peaks", "transient_times", "audio_analysis"
 }
 
 
