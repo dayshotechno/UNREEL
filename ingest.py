@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 _HASH_CHUNK_BYTES = 1024 * 1024  # erste 1 MB – schnell & in der Praxis kollisionsarm
 _FILENAME_PREFIX = "UNREEL_"
 _TS_FORMAT = "%Y%m%d_%H%M%S"
+# Audio-only extensions are music tracks, not clips → include in file list but never rename.
+_AUDIO_ONLY_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".aif"}
+
 
 
 @dataclass
@@ -165,6 +168,14 @@ def ingest_directory(source_dir: str | Path | None = None) -> IngestResult:
             result.final_files.append(str(path))
             seen_targets.add(str(path))
             continue
+
+        # Audio-only files are music tracks – keep original name, don't rename.
+        if path.suffix.lower() in _AUDIO_ONLY_EXTENSIONS:
+            result.final_files.append(str(path))
+            seen_targets.add(str(path))
+            logger.info("Audio-Track beibehalten (kein Rename): %s", path.name)
+            continue
+
 
         target = _target_name(path, seen_targets)
         try:

@@ -115,8 +115,20 @@ def analyze_audio(video_path, progress_callback=None):
     if progress_callback:
         progress_callback("audio", 70, "Buildups werden erkannt...")
 
+    # Compute Melspectrogram for vocal detection
+    S = librosa.feature.melspectrogram(
+        y=y, sr=sr,
+        hop_length=config.HOP_LENGTH,
+        n_mels=128,
+        fmax=sr // 2
+    )
+    mel_freqs = librosa.mel_frequencies(n_mels=128, fmax=sr // 2)
+    vocal_mask = (mel_freqs >= 300) & (mel_freqs < 3000)
+    vocal_energy = np.sum(S[vocal_mask], axis=0) if np.any(vocal_mask) else np.zeros(S.shape[1])
+    vocal_norm = vocal_energy / (vocal_energy.max() + 1e-6)
+
     # --- Buildup / Breakdown Detection ---
-    buildups, breakdowns = _detect_buildups_breakdowns(onset_env_norm, energy_times)
+    buildups, breakdowns = _detect_buildups_breakdowns(onset_env_norm, energy_times, vocal_norm)
 
     if progress_callback:
         progress_callback("audio", 90, "Audio-Analyse abgeschlossen")
@@ -271,8 +283,16 @@ def analyze_music_file(music_path: str) -> dict:
     trans_peaks = _find_peaks2(onset_env_norm, transient_threshold, min_distance_frames=int(0.05 * sr / config.HOP_LENGTH))
     transient_times = times[trans_peaks].tolist() if len(trans_peaks) > 0 else []
 
+    # Vocal-Energie: typischerweise im Mittenbereich, z.B. 300-3000 Hz
+    vocal_mask = (mel_freqs >= 300) & (mel_freqs < 3000)
+    vocal_energy = np.sum(S[vocal_mask], axis=0) if np.any(vocal_mask) else np.zeros(S.shape[1])
+    vocal_norm = vocal_energy / (vocal_energy.max() + 1e-6)
+
     # Drop-Detektion: steiler Anstieg der Bass-Energie (ähnlich _detect_bass_drops)
     drops = _detect_drops(bass_norm, times, sr)
+
+    # Buildups / Breakdowns
+    buildups, breakdowns = _detect_buildups_breakdowns(onset_env_norm, times, vocal_norm)
 
     # Energie-Kurven als Listen von (time, value)
     subbass_list = [(float(times[i]), float(subbass_norm[i])) for i in range(len(times))]
@@ -286,6 +306,8 @@ def analyze_music_file(music_path: str) -> dict:
         "kick_times": kick_times,
         "transient_times": transient_times,
         "drop_times": drops,
+        "buildups": buildups,
+        "breakdowns": breakdowns,
         "duration": duration,
         "sample_rate": sr,
     }
@@ -325,9 +347,10 @@ def _detect_drops(bass_energy: np.ndarray, times: np.ndarray, sr: int) -> list:
     return drops
 
 
-def _detect_buildups_breakdowns(onset_env_norm, energy_times):
+def _detect_buildups_breakdowns(onset_env_norm, energy_times, vocal_energy_norm=None):
     """
     Erkennt Buildups (steigende Energie) und Breakdowns (fallende Energie).
+    Wenn vocal_energy_norm übergeben wird, wird zusätzlich auf Vocals geprüft.
     """
     buildups = []
     breakdowns = []
@@ -361,11 +384,19 @@ def _detect_buildups_breakdowns(onset_env_norm, energy_times):
             duration = end_time - start_time
             if duration >= 2.0:  # Mindestens 2 Sekunden
                 intensity = float(np.mean(gradient[buildup_start:i]) / max(buildup_threshold, 0.001))
-                buildups.append({
+                buildup_data = {
                     "start": start_time,
                     "end": end_time,
                     "intensity": min(intensity, 1.0)
-                })
+                }
+                if vocal_energy_norm is not None:
+                    # check for vocal energy
+                    v_start = buildup_start
+                    v_end = min(i, len(vocal_energy_norm) - 1)
+                    if v_end > v_start:
+                        vocal_presence = float(np.mean(vocal_energy_norm[v_start:v_end]))
+                        buildup_data["has_vocals"] = bool(vocal_presence > 0.3)
+                buildups.append(buildup_data)
 
     # Breakdowns: plötzlicher Energieabfall
     in_breakdown = False
@@ -381,9 +412,17 @@ def _detect_buildups_breakdowns(onset_env_norm, energy_times):
             end_time = float(energy_times[min(i, len(energy_times) - 1)])
             duration = end_time - start_time
             if duration >= 1.0:
-                breakdowns.append({
+                breakdown_data = {
                     "start": start_time,
                     "end": end_time,
-                })
+                }
+                if vocal_energy_norm is not None:
+                    # check for vocal energy
+                    v_start = breakdown_start
+                    v_end = min(i, len(vocal_energy_norm) - 1)
+                    if v_end > v_start:
+                        vocal_presence = float(np.mean(vocal_energy_norm[v_start:v_end]))
+                        breakdown_data["has_vocals"] = bool(vocal_presence > 0.3)
+                breakdowns.append(breakdown_data)
 
     return buildups, breakdowns
