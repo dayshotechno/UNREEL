@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNREEL V3 – Studio Regie-Zentrale</title>
+    <style>
+        :root {
+            --bg-main: #0a0a0c;
+            --bg-card: #141418;
+            --bg-input: #1e1e24;
+            --primary: #ff2a5f;
+            --primary-hover: #ff003c;
+            --accent-cyan: #00e5ff;
+            --text-main: #f0f0f4;
+            --text-muted: #8e8e9e;
+            --border: #282830;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Navigation */
+        header {
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: -1px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-badge {
+            background-color: var(--primary);
+            color: #fff;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background-color: #00e676;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #00e676;
+        }
+
+        /* Main Workspace Layout */
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            height: calc(100vh - 69px);
+        }
+
+        /* Left Controls Panel */
+        .controls-panel {
+            width: 420px;
+            background-color: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .section-header {
+            padding: 1rem 1.5rem;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            background-color: #0e0e12;
+            font-family: var(--font-mono);
+        }
+
+        .control-group {
+            padding: 1.2rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .control-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 0.8rem;
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+            background-color: var(--bg-input);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .dropzone:hover {
+            border-color: var(--primary);
+            background-color: #24242c;
+        }
+
+        .dropzone-icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        .dropzone-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Presets Grid */
+        .presets-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.8rem;
+        }
+
+        .preset-card {
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 90px;
+        }
+
+        .preset-card:hover {
+            border-color: var(--accent-cyan);
+            transform: translateY(-2px);
+        }
+
+        .preset-card.active {
+            background-color: #201a24;
+            border-color: var(--primary);
+            box-shadow: 0 0 12px rgba(255, 42, 95, 0.25);
+        }
+
+        .preset-title {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .preset-icon {
+            font-size: 1.1rem;
+        }
+
+        .preset-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            line-height: 1.3;
+        }
+
+        /* Select inputs & sliders */
+        select, input[type="text"], input[type="number"] {
+            width: 100%;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            outline: none;
+            font-family: inherit;
+        }
+
+        select:focus, input[type="text"]:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            accent-color: var(--primary);
+        }
+
+        .slider-val {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            background-color: var(--bg-input);
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            min-width: 50px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        /* Checkbox switches */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+        }
+
+        .switch-label {
+            font-size: 0.9rem;
+        }
+
+        /* Action Buttons */
+        .action-group {
+            padding: 1.5rem;
+            background-color: #0e0e12;
+            margin-top: auto;
+            border-top: 1px solid var(--border);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.8rem;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), #ff003c);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(255, 42, 95, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 42, 95, 0.6);
+        }
+
+        .btn-secondary {
+            background-color: #24242c;
+            color: var(--text-main);
+            margin-top: 0.8rem;
+            font-size: 0.85rem;
+        }
+
+        .btn-secondary:hover {
+            background-color: #2e2e38;
+        }
+
+        /* Center Panel: Interactive Edit Plan Timeline */
+        .center-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-main);
+            overflow: hidden;
+        }
+
+        .timeline-header {
+            padding: 1rem 2rem;
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .timeline-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .ai-badge {
+            background-color: rgba(0, 229, 255, 0.15);
+            color: var(--accent-cyan);
+            border: 1px solid var(--accent-cyan);
+            padding: 0.2rem 0.6rem;
+            font-size: 0.75rem;
+            border-radius: 12px;
+            font-family: var(--font-mono);
+        }
+
+        /* Active Hook Editor */
+        .hook-editor-container {
+            padding: 1.5rem 2rem;
+            background-color: #121216;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .hook-input-wrapper {
+            position: relative;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .hook-input {
+            flex: 1;
+            background-color: #09090b;
+            border: 1px solid #383844;
+            padding: 1rem 1.5rem;
+            font-size: 1.05rem;
+            font-family: var(--font-mono);
+            color: var(--primary);
+            font-weight: 700;
+            border-radius: 6px;
+            box-shadow: inset 0 2px 6px rgba(0,0,0,0.5);
+        }
+
+        .hook-input:focus {
+            border-color: var(--primary);
+        }
+
+        /* Clip Items Timeline */
+        .clips-container {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .clip-row {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .clip-row:hover {
+            border-color: #4a4a5a;
+        }
+
+        .clip-row.broll-flash {
+            border-left: 4px solid var(--accent-cyan);
+            background-color: #121a20;
+        }
+
+        .clip-row.aroll {
+            border-left: 4px solid var(--primary);
+        }
+
+        .clip-handle {
+            cursor: grab;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+        }
+
+        .clip-thumb {
+            width: 100px;
+            height: 60px;
+            background-color: #222;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: #aaa;
+            border: 1px solid #333;
+        }
+
+        .clip-info {
+            flex: 1;
+        }
+
+        .clip-filename {
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.3rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .tag-token {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            background-color: #282830;
+            font-family: var(--font-mono);
+            color: #ddd;
+        }
+
+        .clip-meta {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 1.5rem;
+            font-family: var(--font-mono);
+        }
+
+        .clip-reason {
+            font-size: 0.9rem;
+            color: #d0d0d8;
+            margin-top: 0.5rem;
+            background-color: rgba(0,0,0,0.3);
+            padding: 0.5rem 0.8rem;
+            border-radius: 4px;
+            border-left: 2px solid #555;
+        }
+
+        .clip-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-icon {
+            background-color: #222;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            width: 36px;
+            height: 36px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.1s ease;
+        }
+
+        .btn-icon:hover {
+            color: #fff;
+            border-color: #666;
+            background-color: #333;
+        }
+
+        /* Right Panel: Vertical Reel Preview */
+        .preview-panel {
+            width: 400px;
+            background-color: #000;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .preview-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        /* 9:16 Video Phone Emulator Layout */
+        .phone-emulator {
+            width: 300px;
+            height: 533px; /* 9:16 aspect ratio */
+            background-color: #111;
+            border: 12px solid #222;
+            border-radius: 36px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .phone-notch {
+            position: absolute;
+            top: 0;
+            width: 120px;
+            height: 24px;
+            background-color: #222;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            z-index: 10;
+        }
+
+        /* Visual Active Phone Content */
+        .screen-content {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: linear-gradient(215deg, #181024, #0a0e14);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .simulated-video-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.6;
+            filter: contrast(1.2) saturation(1.2);
+        }
+
+        .overlay-timecode {
+            position: absolute;
+            top: 40px;
+            left: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: #fff;
+            background-color: rgba(0,0,0,0.6);
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 5;
+        }
+
+        .overlay-vfx-badge {
+            position: absolute;
+            top: 40px;
+            right: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            background-color: rgba(0,229,255,0.1);
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            border: 1px solid var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 5;
+        }
+
+        .overlay-hook-text {
+            position: absolute;
+            top: 35%;
+            left: 5%;
+            width: 90%;
+            font-family: var(--font-mono);
+            font-size: 1.4rem;
+            font-weight: 900;
+            color: #fff;
+            text-transform: uppercase;
+            text-shadow: 2px 2px 0px #000, -2px -2px 0px var(--primary);
+            line-height: 1.1;
+            z-index: 5;
+            padding: 1rem;
+            background-color: rgba(0,0,0,0.4);
+            border-left: 6px solid var(--primary);
+        }
+
+        .player-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1.5rem;
+            z-index: 5;
+            padding: 0 2rem;
+        }
+
+        .play-btn {
+            width: 54px;
+            height: 54px;
+            background-color: var(--primary);
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            box-shadow: 0 0 15px var(--primary);
+            transition: all 0.2s ease;
+        }
+
+        .play-btn:hover {
+            transform: scale(1.1);
+            background-color: var(--primary-hover);
+        }
+
+        /* Interactive Output Captions Section */
+        .export-meta-box {
+            width: 100%;
+            background-color: #111;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .export-meta-title {
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .caption-text {
+            background-color: #0a0a0c;
+            padding: 0.8rem;
+            border-radius: 4px;
+            color: #ddd;
+            font-family: var(--font-mono);
+            margin-top: 0.5rem;
+            line-height: 1.4;
+            border-left: 3px solid var(--accent-cyan);
+        }
+
+        /* Mock Terminal Progress modal */
+        .render-console {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .console-box {
+            width: 720px;
+            background-color: #0e0e12;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+            font-family: var(--font-mono);
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            color: var(--primary);
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+            border-bottom: 1px solid #222;
+            padding-bottom: 0.8rem;
+        }
+
+        .console-lines {
+            height: 240px;
+            background-color: #050506;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            color: #00e676;
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .console-line {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .time-tag { color: #666; }
+
+        .progress-bar-container {
+            margin-top: 1.5rem;
+            background-color: #222;
+            height: 12px;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary), var(--accent-cyan));
+            box-shadow: 0 0 10px var(--accent-cyan);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <div class="logo">
+            <span>UNREEL</span>
+            <span style="font-weight: 300; color: var(--primary);">V3</span>
+            <span class="logo-badge">Regie-Zentrale</span>
+        </div>
+
+        <div class="system-status">
+            <div class="status-indicator">
+                <div class="dot"></div>
+                <span>FastAPI Backend Active</span>
+            </div>
+            <span style="color: #666;">|</span>
+            <span>Provider: <strong style="color: var(--accent-cyan);">DeepSeek V4 Pro</strong> (Auto)</span>
+            <span style="color: #666;">|</span>
+            <span>HW: <strong>Apple Silicon (MLX Core)</strong></span>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace">
+
+        <!-- Left Controls Panel -->
+        <div class="controls-panel">
+            <div class="section-header">1. Ingest & Quellmaterial</div>
+            
+            <div class="control-group">
+                <div class="control-label">Video Input Ordner</div>
+                <div class="dropzone" id="video-dropzone">
+                    <div class="dropzone-icon">📁</div>
+                    <div class="dropzone-text" style="color: #fff; font-weight: 700;">Videos hier per Drag & Drop ablegen</div>
+                    <div class="dropzone-text" style="margin-top: 0.3rem;">Oder klicken zur Pfadauswahl (./input)</div>
+                    <div class="dropzone-text" style="margin-top: 0.8rem; font-family: monospace; color: #00e676;">✓ 24 Quell-Clips verifiziert</div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="control-label">Master Musik-Bed (--music)</div>
+                <div class="dropzone" id="audio-dropzone" style="border-color: #444;">
+                    <div class="dropzone-icon" style="color: var(--accent-cyan);">🎧</div>
+                    <div class="dropzone-text" style="color: #fff; font-weight: 700;">dein_killer_track_142bpm.mp3</div>
+                    <div class="dropzone-text" style="margin-top: 0.3rem; color: var(--accent-cyan);">Drop detected @ 12.4s (Aligned to Reel Peak)</div>
+                </div>
+            </div>
+
+            <div class="section-header">2. KI-Regie Presets (-p)</div>
+            
+            <div class="control-group">
+                <div class="presets-grid">
+                    <div class="preset-card active" onclick="switchPreset(this, 'tarantino')">
+                        <div class="preset-title">
+                            <span>Tarantino</span>
+                            <span class="preset-icon">🎬</span>
+                        </div>
+                        <div class="preset-desc">Retention-Waffe: In media res Hook → Tech-Noir Flashback → Club Explosion. Auto J-Cut.</div>
+                    </div>
+                    
+                    <div class="preset-card" onclick="switchPreset(this, 'artist_narrative')">
+                        <div class="preset-title">
+                            <span>Artist Story</span>
+                            <span class="preset-icon">🔥</span>
+                        </div>
+                        <div class="preset-desc">Reichweite: Provozierender Hook, mechanischer Grind → Payoff im Main Drop.</div>
+                    </div>
+
+                    <div class="preset-card" onclick="switchPreset(this, 'booking')">
+                        <div class="preset-title">
+                            <span>Booking</span>
+                            <span class="preset-icon">💼</span>
+                        </div>
+                        <div class="preset-desc">Promoter Showcase: Mixer-Technique + volle Crowd. Keine privaten Szenen.</div>
+                    </div>
+
+                    <div class="preset-card" onclick="switchPreset(this, 'pov_story')">
+                        <div class="preset-title">
+                            <span>POV Vlog</span>
+                            <span class="preset-icon">📱</span>
+                        </div>
+                        <div class="preset-desc">A Day in the Life: before → during → after Chronologie + Anti-Advice Hook.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-header">3. Pacing & Ästhetik</div>
+
+            <div class="control-group">
+                <div class="control-label">Ziel-Dauer (-d)</div>
+                <div class="slider-container">
+                    <input type="range" min="15" max="90" value="30" step="5" oninput="updateDuration(this.value)">
+                    <span class="slider-val" id="dur-val">30s</span>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="control-label">3D-LUT Color Grading</div>
+                <select id="lut-select" onchange="updateLUT(this.value)">
+                    <option value="underground_dark">Underground Dark Techno (Default)</option>
+                    <option value="neon_nights">Neon Nights (High Saturation)</option>
+                    <option value="tech_noir">Tech-Noir (Industrial Monochrome)</option>
+                    <option value="vhs_analog">VHS Analog (Faded/Warm)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <div class="control-label">Underground Analog-VFX</div>
+                <div class="toggle-switch">
+                    <span class="switch-label">Vollautomatisches B-Roll Interleaving</span>
+                    <input type="checkbox" checked style="width: auto; accent-color: var(--primary);">
+                </div>
+                <div class="toggle-switch">
+                    <span class="switch-label">Brutalist J-Cut + Audio Lowpass</span>
+                    <input type="checkbox" checked style="width: auto; accent-color: var(--primary);">
+                </div>
+                <div class="toggle-switch">
+                    <span class="switch-label">Running Timecode / BPM Burn-in</span>
+                    <input type="checkbox" checked id="timecode-toggle" onchange="toggleTimecode(this.checked)" style="width: auto; accent-color: var(--primary);">
+                </div>
+            </div>
+
+            <div class="action-group">
+                <button class="btn btn-primary" onclick="startMasterRender()">
+                    <span>🎬 Master-Reel Rendern (Single-Pass)</span>
+                </button>
+                <button class="btn btn-secondary" onclick="generateNewPlan()">
+                    <span>🔄 KI-Schnittplan neu würfeln</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Center Panel: Interactive Edit Plan Timeline -->
+        <div class="center-panel">
+            <div class="timeline-header">
+                <div class="timeline-title">
+                    <span>KI-Schnittplan (Schnittliste)</span>
+                    <span class="ai-badge">DeepSeek V4 Pro – Chain of Thought</span>
+                </div>
+                <span style="font-family: monospace; font-size: 0.9rem; color: var(--text-muted);">Total: <strong style="color: #fff;" id="plan-dur-text">30.0s</strong> (4 Clips)</span>
+            </div>
+
+            <!-- Anti-Advice Hook Editor -->
+            <div class="hook-editor-container">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-family: monospace; margin-bottom: 0.5rem;">Aktiver Anti-Advice Hook (Erste 3 Sekunden)</div>
+                <div class="hook-input-wrapper">
+                    <input type="text" class="hook-input" id="hook-text-input" value="stop practicing your transitions." oninput="updateHookDisplay(this.value)">
+                    <button class="btn-icon" style="width: 50px; height: auto; background-color: var(--primary); color: #fff; font-weight: 700; font-family: monospace;" onclick="rewriteHook()">AI</button>
+                </div>
+                <div style="font-size: 0.75rem; color: #666; margin-top: 0.5rem; font-family: monospace;">* Hook wird nicht ins Video gebrannt, sondern für Instagram Captions exportiert</div>
+            </div>
+
+            <!-- Interactive Clips List -->
+            <div class="clips-container" id="timeline-clips">
+                
+                <div class="clip-row aroll">
+                    <div class="clip-handle">⋮</div>
+                    <div class="clip-thumb" style="background: linear-gradient(135deg, #442, #111);">DJ_01.mp4</div>
+                    <div class="clip-info">
+                        <div class="clip-filename">
+                            <span>UNREEL_20260612_143000.mp4</span>
+                            <span class="tag-token" style="color: #ff2a5f;">DJ_SETUP</span>
+                            <span class="tag-token">A-Roll Head</span>
+                        </div>
+                        <div class="clip-meta">
+                            <span>Start: 10.0s → 11.8s (1.8s)</span>
+                            <span>Cut: hard_cut_on_beat</span>
+                            <span>LUT: Underground Dark</span>
+                        </div>
+                        <div class="clip-reason">Pattern Interrupt: Zeige fokussierten Artist an den Decks, Hände am XONE-Mixer.</div>
+                    </div>
+                    <div class="clip-actions">
+                        <button class="btn-icon" title="VFX Hinzufügen">⚡</button>
+                        <button class="btn-icon" title="Löschen" onclick="deleteClip(this)">✕</button>
+                    </div>
+                </div>
+
+                <div class="clip-row broll-flash">
+                    <div class="clip-handle">⋮</div>
+                    <div class="clip-thumb" style="background: linear-gradient(135deg, #086, #023); border-color: var(--accent-cyan);">CROWD.mp4</div>
+                    <div class="clip-info">
+                        <div class="clip-filename">
+                            <span>UNREEL_20260612_150000.mp4</span>
+                            <span class="tag-token" style="color: var(--accent-cyan);">CROWD_ENERGY</span>
+                            <span class="tag-token">B-Roll Interleave</span>
+                        </div>
+                        <div class="clip-meta">
+                            <span>Start: 20.0s → 21.2s (1.2s)</span>
+                            <span>Cut: split_edit_flash</span>
+                            <span>VFX: <strong style="color: var(--accent-cyan);">RGB-Split Glitch</strong></span>
+                        </div>
+                        <div class="clip-reason">Smart Interleaving: Blitz-Einschub der feiernden Crowd auf dem Snare-Roll unter laufendem Live-Ton.</div>
+                    </div>
+                    <div class="clip-actions">
+                        <button class="btn-icon" title="VFX Hinzufügen">⚡</button>
+                        <button class="btn-icon" title="Löschen" onclick="deleteClip(this)">✕</button>
+                    </div>
+                </div>
+
+                <div class="clip-row aroll">
+                    <div class="clip-handle">⋮</div>
+                    <div class="clip-thumb" style="background: linear-gradient(135deg, #442, #111);">DJ_01.mp4</div>
+                    <div class="clip-info">
+                        <div class="clip-filename">
+                            <span>UNREEL_20260612_143000.mp4</span>
+                            <span class="tag-token" style="color: #ff2a5f;">DJ_SETUP</span>
+                            <span class="tag-token">A-Roll Tail</span>
+                        </div>
+                        <div class="clip-meta">
+                            <span>Start: 13.0s → 16.0s (3.0s)</span>
+                            <span>Cut: split_edit_return</span>
+                            <span>LUT: Underground Dark</span>
+                        </div>
+                        <div class="clip-reason">Rückkehr zum A-Roll Live-Shot exakt auf dem Main Drop. Eskalation.</div>
+                    </div>
+                    <div class="clip-actions">
+                        <button class="btn-icon" title="VFX Hinzufügen">⚡</button>
+                        <button class="btn-icon" title="Löschen" onclick="deleteClip(this)">✕</button>
+                    </div>
+                </div>
+
+                <div class="clip-row" style="border-left: 4px solid #ff9100;">
+                    <div class="clip-handle">⋮</div>
+                    <div class="clip-thumb" style="background: linear-gradient(135deg, #630, #210);">LIGHTS.mp4</div>
+                    <div class="clip-info">
+                        <div class="clip-filename">
+                            <span>UNREEL_20260612_154500.mp4</span>
+                            <span class="tag-token" style="color: #ff9100;">LIGHT_SHOW</span>
+                            <span class="tag-token">Climax Loop</span>
+                        </div>
+                        <div class="clip-meta">
+                            <span>Start: 40.0s → 64.0s (24.0s)</span>
+                            <span>Cut: hard_cut_on_beat</span>
+                            <span>Slow-Mo: <strong style="color: #ff9100;">50% Speed (2.0x)</strong></span>
+                        </div>
+                        <div class="clip-reason">Strobes und Laser peaken im Aftermath. Split & Swap Setup für perfekten Seamless Loop am Ende.</div>
+                    </div>
+                    <div class="clip-actions">
+                        <button class="btn-icon" title="VFX Hinzufügen">⚡</button>
+                        <button class="btn-icon" title="Löschen" onclick="deleteClip(this)">✕</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Panel: Vertical Reel Preview -->
+        <div class="preview-panel">
+            <div class="preview-header">
+                <span>INSTAGRAM REELS (9:16)</span>
+                <span style="color: #00e676; font-family: monospace;">● READY TO PUBLISH</span>
+            </div>
+
+            <!-- Phone Emulator -->
+            <div class="phone-emulator">
+                <div class="phone-notch"></div>
+                
+                <div class="screen-content" id="phone-screen">
+                    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='700'><rect width='100%' height='100%' fill='#181024'/><circle cx='200' cy='350' r='180' fill='#ff2a5f' opacity='0.2'/><path d='M100 200 L300 500 M300 200 L100 500' stroke='#00e5ff' stroke-width='4' opacity='0.15'/></svg>" class="simulated-video-bg" id="sim-vid">
+                    
+                    <div class="overlay-timecode" id="tcode-badge">DAY SHØ // 00:00:12</div>
+                    <div class="overlay-vfx-badge" id="vfx-badge">LUT: Underground</div>
+
+                    <div class="overlay-hook-text" id="phone-hook-text">stop practicing your transitions.</div>
+                </div>
+
+                <div class="player-controls">
+                    <div class="play-btn" onclick="togglePlay(this)">▶</div>
+                </div>
+            </div>
+
+            <!-- Posting Text / Caption Output -->
+            <div class="export-meta-box">
+                <div class="export-meta-title">
+                    <span>INSTAGRAM CAPTION & HASHTAGS</span>
+                    <span style="cursor: pointer; color: var(--accent-cyan);" onclick="copyCaption()">📋 Copy</span>
+                </div>
+                <div class="caption-text" id="cap-output">
+                    When the bass hits different at 2am 🔊⚡ Absolute Eskalation auf dem Floor!
+                    <br><br>
+                    <span style="color: var(--primary);">#techno #hardtechno #schranz #djlife #underground #raveCulture #dayShø</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Live Render Regie Console Modal -->
+    <div class="render-console" id="render-modal">
+        <div class="console-box">
+            <div class="console-header">
+                <span>FFMPEG MASTER-FILTERGRAPH ENGINE (SINGLE-PASS)</span>
+                <span id="render-pct" style="color: var(--accent-cyan);">0%</span>
+            </div>
+            
+            <div class="console-lines" id="console-output">
+                <div class="console-line">
+                    <span class="time-tag">[00:00:01]</span>
+                    <span>Starte Master Render Engine... Kompiliere 4 Video-Streams + Master MP3</span>
+                </div>
+            </div>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="pb-fill"></div>
+            </div>
+
+            <button class="btn btn-secondary" style="margin-top: 2rem; display: none;" id="render-close-btn" onclick="closeRenderModal()">
+                <span style="color: #00e676;">✓ MASTER REEL ERFOLGREICH EXPORTIERT (output/reel_tarantino.mp4)</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentPreset = 'tarantino';
+        let isPlaying = false;
+        let playTimer = null;
+
+        function switchPreset(elem, presetName) {
+            document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
+            elem.classList.add('active');
+            currentPreset = presetName;
+
+            const hookInput = document.getElementById('hook-text-input');
+            const vfxBadge = document.getElementById('vfx-badge');
+
+            if (presetName === 'tarantino') {
+                hookInput.value = "stop practicing your transitions.";
+                vfxBadge.textContent = "VFX: RGB-SPLIT GLITCH";
+            } else if (presetName === 'artist_narrative') {
+                hookInput.value = "niemand sieht die 8 stunden vorher. nur die 8 sekunden danach.";
+                vfxBadge.textContent = "LUT: TECH-NOIR (COLD)";
+            } else if (presetName === 'booking') {
+                hookInput.value = "";
+                vfxBadge.textContent = "PROMOTER SHOWCASE";
+            } else if (presetName === 'pov_story') {
+                hookInput.value = "POV: ignored every DJ tip and still packed the floor.";
+                vfxBadge.textContent = "CHRONOLOGY VLOG";
+            }
+
+            updateHookDisplay(hookInput.value);
+            generateNewPlan(presetName);
+        }
+
+        function updateHookDisplay(val) {
+            const disp = document.getElementById('phone-hook-text');
+            if (val.trim() === "") {
+                disp.style.display = "none";
+            } else {
+                disp.style.display = "block";
+                disp.textContent = val;
+            }
+        }
+
+        function rewriteHook() {
+            const prompts = [
+                "nobody cares about your warm-up set.",
+                "the crowd doesn't want your 'journey'.",
+                "POV: 6h Zugfahrt für ein 90-Minuten-Set im roten Bereich.",
+                "the train was late. the drop wasn't.",
+                "die jungs vs. das set."
+            ];
+            const randomHook = prompts[Math.floor(Math.random() * prompts.length)];
+            document.getElementById('hook-text-input').value = randomHook;
+            updateHookDisplay(randomHook);
+        }
+
+        function updateDuration(val) {
+            document.getElementById('dur-val').textContent = val + "s";
+            document.getElementById('plan-dur-text').textContent = val + ".0s";
+        }
+
+        function updateLUT(val) {
+            document.getElementById('vfx-badge').textContent = "LUT: " + val.toUpperCase().replace("_", " ");
+        }
+
+        function toggleTimecode(checked) {
+            document.getElementById('tcode-badge').style.display = checked ? "block" : "none";
+        }
+
+        function deleteClip(btn) {
+            const row = btn.closest('.clip-row');
+            row.style.transform = "translateX(100px)";
+            row.style.opacity = "0";
+            setTimeout(() => {
+                row.remove();
+            }, 200);
+        }
+
+        function copyCaption() {
+            const capText = document.getElementById('cap-output').innerText;
+            navigator.clipboard.writeText(capText);
+            alert("Instagram Caption erfolgreich kopiert!");
+        }
+
+        function togglePlay(btn) {
+            const simVid = document.getElementById('sim-vid');
+            isPlaying = !isPlaying;
+
+            if (isPlaying) {
+                btn.innerHTML = "❚⋮❚"; // Pause
+                simVid.style.filter = "contrast(1.5) saturation(1.8) hue-rotate(90deg)";
+                document.getElementById('phone-screen').style.transform = "scale(1.03)";
+                
+                playTimer = setInterval(() => {
+                    // Simulate music beating
+                    document.getElementById('phone-screen').style.background = `linear-gradient(215deg, #1810${Math.floor(Math.random()*60+20)}, #0a0e14)`;
+                }, 400);
+            } else {
+                btn.innerHTML = "▶";
+                simVid.style.filter = "contrast(1.2) saturation(1.2)";
+                document.getElementById('phone-screen').style.transform = "scale(1)";
+                clearInterval(playTimer);
+            }
+        }
+
+        function generateNewPlan(preset = 'tarantino') {
+            const timeline = document.getElementById('timeline-clips');
+            timeline.style.opacity = "0.2";
+            
+            setTimeout(() => {
+                timeline.style.opacity = "1";
+            }, 300);
+        }
+
+        function startMasterRender() {
+            const modal = document.getElementById('render-modal');
+            const pbFill = document.getElementById('pb-fill');
+            const outBox = document.getElementById('console-output');
+            const closeBtn = document.getElementById('render-close-btn');
+            const renderPct = document.getElementById('render-pct');
+
+            modal.style.display = "flex";
+            closeBtn.style.display = "none";
+            pbFill.style.width = "0%";
+            renderPct.textContent = "0%";
+            
+            outBox.innerHTML = `
+                <div class="console-line"><span class="time-tag">[00:00:01]</span><span>Starte Single-Pass Master-Filtergraph Engine...</span></div>
+                <div class="console-line"><span class="time-tag">[00:00:02]</span><span>Demuxer Seeking: trim=10.0:16.0s auf DJ_01.mp4 angewendet (CPU Saved)</span></div>
+            `;
+
+            let step = 0;
+            const lines = [
+                "Demuxer Seeking: trim=20.0:21.2s auf CROWD.mp4 angewendet",
+                "Lade Master Musik-Bed: dein_killer_track_142bpm.mp3 [Drop aligned @ 12.4s]",
+                "Kompiliere Complex Filtergraph... [0:v]crop=9:16,lut3d=underground_dark.cube",
+                "Wende Underground Analog-VFX an: rgbashift=rh=14:bh=-14 (RGB-Split Glitch)",
+                "Bündele 4 Audio-/Video-Ströme via concat=n=4:v=1:a=0",
+                "Bremse Aftermath ab: setpts=PTS*2.0 (Super-Slow-Mo 50%)",
+                "Brenne Running Timecode // DAY SHØ // RAW AUDIO ein",
+                "Starte High-Performance x264 Render-Durchgang in RAM...",
+                "Frame= 450/900 fps=150 bitrate=4.2Mbits/s",
+                "Frame= 900/900 fps=165 bitrate=4.1Mbits/s"
+            ];
+
+            const renderTimer = setInterval(() => {
+                if (step < lines.length) {
+                    const nextLine = document.createElement('div');
+                    nextLine.className = "console-line";
+                    nextLine.innerHTML = `<span class="time-tag">[00:00:${(step+3).toString().padStart(2,'0')}]</span><span>${lines[step]}</span>`;
+                    outBox.appendChild(nextLine);
+                    outBox.scrollTop = outBox.scrollHeight;
+
+                    const pct = Math.floor(((step + 1) / lines.length) * 100);
+                    pbFill.style.width = pct + "%";
+                    renderPct.textContent = pct + "%";
+                    step++;
+                } else {
+                    clearInterval(renderTimer);
+                    closeBtn.style.display = "flex";
+                }
+            }, 300);
+        }
+
+        function closeRenderModal() {
+            document.getElementById('render-modal').style.display = "none";
+            alert("Master Reel erfolgreich gerendert! Du kannst es jetzt direkt auf Instagram oder TikTok veröffentlichen.");
+        }
+    </script>
+</body>
+</html>
