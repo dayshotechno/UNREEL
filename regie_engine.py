@@ -381,18 +381,26 @@ class DeepSeekProvider:
 
         logger.info(f"  → Calling {self._model} (DeepSeek)...")
 
+        # Force DeepSeek reasoning models to minimize chain-of-thought to avoid
+        # hitting the 8192 max_tokens limit before outputting the JSON.
+        system_prompt += "\n\nCRITICAL: You are running in a constrained environment. Skip detailed step-by-step reasoning. Output the JSON response immediately."
+
         response = client.chat.completions.create(
             model=self._model,
             max_tokens=max_tokens,
             temperature=temperature,
-            response_format={"type": "json_object"},  # Force JSON
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_data},
             ],
         )
 
-        return response.choices[0].message.content
+        # DeepSeek might return the actual JSON in content, or if it's a reasoning
+        # model that failed to finish, content might be None. Handle None gracefully.
+        content = response.choices[0].message.content or ""
+        if not content:
+            logger.warning(f"DeepSeek returned empty content. Full response: {response}")
+        return content
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +651,46 @@ RULES:
 Set each clip's "phase": "before" | "during" | "after" (chronological).
 """
 
+_DROP_FOCUS_SECTION = """
+DROP-FOCUS / FESTIVAL-PEAK MODE (preset = drop_focus) — OVERRIDES the generic rules.
+Goal: Maximize the impact of the bass drops. The entire reel exists to serve one or two massive drops.
+
+RULES:
+- USE the `buildups` and `breakdowns` arrays from the music_analysis (if available).
+- PHASES:
+  1. "buildup": Tension building. Use breakdowns (especially those with `has_vocals=true` for maximum emotional impact) and buildups. Visually: DJ tension, crowd anticipation, raising hands (DJ_SETUP / CROWD_ENERGY).
+  2. "drop": The climax. MUST start exactly at the timestamp of a major drop in `drop_times`. Visually: absolute chaos, strobes, crowd jumping.
+  3. "aftermath": The rolling groove after the drop. Sustained high energy.
+- VFX: "pump" or "flash" MANDATORY exactly at the drop cut.
+- LUT: "neon_nights" or "underground_dark".
+Set each clip's "phase": "buildup" | "drop" | "aftermath".
+"""
+
+_MOODY_SECTION = """
+MOODY / HYPNOTIC AFTERHOURS MODE (preset = moody) — OVERRIDES the generic rules.
+Goal: Deep, hypnotic, atmospheric techno aesthetic. Slower pacing, focus on lights, silhouettes, and the trance-like state of the crowd.
+
+RULES:
+- Pacing: SLOW. Let clips breathe for 4 to 8 beats (1 to 2 bars) before cutting. No frantic beat-massacre.
+- Content: Prioritize dark scenes, silhouettes, lasers cutting through fog, deep focus on the DJ's hands or stoic expressions (LIGHT_SHOW / DJ_SETUP).
+- Music Alignment: Favor the `breakdowns` and deep `subbass_energy` sections of the track. If a breakdown has `has_vocals=true`, use a long, evocative shot there.
+- Transitions: Use "crossfade" (1.0s to 2.0s) occasionally to blur the lines between shots, creating a dream-like state. Hard cuts are allowed but should feel deliberate and heavy.
+- LUT: "tech_noir" (monochrome/cold) or "underground_dark".
+- "hook_text" is optional but should be minimal and mysterious if used (e.g. "lost in it.").
+Set each clip's "phase": "intro" | "hypnotic" | "deep_drop".
+"""
+
+_SEAMLESS_LOOP_SECTION = """
+SEAMLESS LOOP / INFINITE RETENTION MODE (preset = seamless_loop) — OVERRIDES the generic rules.
+Goal: Create a short (10-20 seconds), high-retention edit where the end seamlessly flows back into the beginning.
+
+RULES:
+- Narrative trick: The VERY LAST CLIP of the reel and the VERY FIRST CLIP of the reel MUST be the exact same video file (or two visually identical shots) so it loops perfectly when played on repeat.
+- Structure: Start the reel IN THE MIDDLE of a high-energy clip, then cut to other clips, and end the reel with the FIRST HALF of that same high-energy clip. (e.g., if clip A has a great movement from 2.0s to 6.0s, use 4.0s to 6.0s as the first clip, and 2.0s to 4.0s as the final clip).
+- Duration: Keep the total plan short (10 to 20 seconds total).
+- Focus on `drop_times` or intense `buildups` to keep the viewer hooked before they realize the video looped.
+Set each clip's "phase": "loop_start" | "middle" | "loop_end".
+"""
 
 def _build_system_prompt(preset: str, duration: float, target_bpm: float = 0) -> str:
     """Build the system prompt for the regie AI task."""
@@ -652,6 +700,9 @@ def _build_system_prompt(preset: str, duration: float, target_bpm: float = 0) ->
         "artist_narrative": _ARTIST_NARRATIVE_SECTION,
         "booking": _BOOKING_SECTION,
         "community": _COMMUNITY_SECTION,
+        "drop_focus": _DROP_FOCUS_SECTION,
+        "moody": _MOODY_SECTION,
+        "seamless_loop": _SEAMLESS_LOOP_SECTION,
     }
     preset_section = sections.get(preset, "")
 
@@ -668,7 +719,7 @@ EDIT SPECIFICATIONS:
 
 EDITING RULES:
 1. Every cut MUST land on a beat, kick, snare, or drop timestamp
-2. Build dramatic tension: start calm → build up → peak at drops → cool down
+2. Build dramatic tension: start calm → build up → peak at drops → cool down. If the music track contains breakdowns or buildups with `has_vocals=true`, heavily prefer placing dramatic or atmospheric clips there before the drop hits.
 3. Prioritize CROWD_ENERGY and LIGHT_SHOW tags for peak moments
 4. Avoid UNUSABLE and BACKSTAGE segments
 5. Use hard cuts on kicks/snares for energy, crossfades for transitions
@@ -678,12 +729,12 @@ EDITING RULES:
 9. The last clip should create a seamless loop feel if possible
 10. The analysis JSON includes "clip_durations" (real length of each source file in seconds). NEVER set a clip's "end" beyond its source duration.
 11. **Per‑clip audio analysis**: Each video in phase_2 may contain an "audio_analysis" dict with: tempo, beat_times, bass_drops, buildups, breakdowns, energy_envelope, energy_times. Use these to align cuts to that specific video's kicks/beats. If a video lacks audio_analysis, fall back to the global beat grid.
-12. **Music track analysis** (optional): If present in music_analysis, it contains: bpm, kick_times, drop_times, beat_times. You may align cuts to the music track for a tighter sync between the reel and the background audio. If both per‑clip and music track data exist, prefer per‑clip data for the video's own cuts, but use music track data for the overall pacing and drop alignment.
+12. **Music track analysis** (optional): If present in music_analysis, it contains: bpm, kick_times, drop_times, beat_times, buildups, breakdowns. You may align cuts to the music track for a tighter sync between the reel and the background audio. If both per‑clip and music track data exist, prefer per‑clip data for the video's own cuts, but use music track data for the overall pacing and drop alignment.
 
 PRESET DEFINITIONS:
 - "highlight": Best moments, high energy, fast cuts, 60-90s
 - "drop_focus": Centered around drops, build-up → drop → aftermath
-- "seamless_loop": Short (15-30s), end flows back to start
+- "seamless_loop": Short (10-20s), end flows back to start via split-clip logic
 - "moody": Slower cuts, atmospheric, BREAKDOWN + LIGHT_SHOW heavy
 - "pov_story": POV / "A Day in the Life" — story-driven vlog reel (before → during → after a gig) with an anti-advice text hook in the first 3s
 - "tarantino": Non-linear, brutalist techno edit — climax first (in media res), then chronological flashback (tech-noir, hard beat-cuts), buildup, escalation
@@ -713,8 +764,8 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown fences, 
 }}
 
 SCHEMA NOTES:
-- "phase": pov_story / community → "before" | "during" | "after"; tarantino → "hook" | "flashback" | "buildup" | "escalation"; artist_narrative → "hook" | "journey" | "escalation"; booking → "opener" | "showcase" | "peak"; "" for all other presets.
-- "hook_text": REQUIRED (non-empty) for pov_story and artist_narrative; optional for community; "" otherwise."""
+- "phase": pov_story / community → "before" | "during" | "after"; tarantino → "hook" | "flashback" | "buildup" | "escalation"; artist_narrative → "hook" | "journey" | "escalation"; booking → "opener" | "showcase" | "peak"; drop_focus → "buildup" | "drop" | "aftermath"; moody → "intro" | "hypnotic" | "deep_drop"; seamless_loop → "loop_start" | "middle" | "loop_end"; "" for highlight.
+- "hook_text": REQUIRED (non-empty) for pov_story and artist_narrative; optional for community and moody; "" otherwise."""
 
 
 # ---------------------------------------------------------------------------
@@ -797,6 +848,7 @@ _HEAVY_KEYS = {
     "energy_envelope", "energy_times", "onset_env",
     "beat_times", "subbass_energy", "bass_energy",
     "dhash_sig", "vision_tags", "vision_tags_filtered",
+    "energy_peaks", "transient_times"
 }
 
 
@@ -861,64 +913,85 @@ def generate_edit_plan(
     Returns:
         EditPlan with precise clip selections
     """
-    # Resolve provider
-    ai = resolve_provider(provider)
-
     logger.info(f"Generating edit plan: preset={preset}, duration={duration}s")
-    logger.info(f"  Provider: {ai.name} ({ai.model_id})")
+    
+    name = (provider or REGIE_PROVIDER).lower().strip()
+    providers_to_try = [name] if name != "auto" else [p for p in REGIE_PROVIDER_FALLBACK_ORDER if get_provider(p).is_available()]
+    
+    if not providers_to_try:
+        raise ValueError("No available providers to try.")
 
-    # Build prompts
-    system_prompt = _build_system_prompt(preset, duration, target_bpm)
+    last_error = None
+    for ai_name in providers_to_try:
+        try:
+            ai = get_provider(ai_name)
+            logger.info(f"  Provider: {ai.name} ({ai.model_id})")
 
-    # Musikdaten als zusätzlichen Abschnitt im System-Prompt einfügen (für alle Presets)
-    music_analysis = analysis_data.get("music_analysis")
-    if music_analysis and "error" not in music_analysis:
-        music_summary = "\n\nMUSIC TRACK ANALYSIS (use for timing cuts, drops, and overall pacing):\n"
-        if music_analysis.get("bpm"):
-            music_summary += f"- BPM: {music_analysis['bpm']:.1f}\n"
-        if music_analysis.get("beat_times"):
-            beats = music_analysis["beat_times"]
-            music_summary += f"- {len(beats)} beat_times: first 8 = {beats[:8]}\n"
-        if music_analysis.get("kick_times"):
-            kicks = music_analysis["kick_times"]
-            music_summary += f"- {len(kicks)} kick_times: first 10 = {kicks[:10]}\n"
-        if music_analysis.get("drop_times"):
-            drops = music_analysis["drop_times"]
-            music_summary += f"- {len(drops)} drop_times: {drops[:5]}\n"
-        if music_analysis.get("subbass_energy"):
-            # Nur zeigen, dass es existiert
-            music_summary += f"- subbass_energy curve available ({len(music_analysis['subbass_energy'])} values)\n"
-        system_prompt += music_summary
+            # Build prompts
+            system_prompt = _build_system_prompt(preset, duration, target_bpm)
 
-    trimmed = _trim_analysis_for_prompt(analysis_data)
-    user_data = f"ANALYSIS DATA:\n```json\n{json.dumps(trimmed, indent=2, ensure_ascii=False, default=str)}\n```"
+            # Musikdaten als zusätzlichen Abschnitt im System-Prompt einfügen (für alle Presets)
+            music_analysis = analysis_data.get("music_analysis")
+            if music_analysis and "error" not in music_analysis:
+                music_summary = "\n\nMUSIC TRACK ANALYSIS (use for timing cuts, drops, and overall pacing):\n"
+                if music_analysis.get("bpm"):
+                    music_summary += f"- BPM: {music_analysis['bpm']:.1f}\n"
+                if music_analysis.get("beat_times"):
+                    beats = music_analysis["beat_times"]
+                    music_summary += f"- {len(beats)} beat_times: first 8 = {beats[:8]}\n"
+                if music_analysis.get("kick_times"):
+                    kicks = music_analysis["kick_times"]
+                    music_summary += f"- {len(kicks)} kick_times: first 10 = {kicks[:10]}\n"
+                if music_analysis.get("drop_times"):
+                    drops = music_analysis["drop_times"]
+                    music_summary += f"- {len(drops)} drop_times: {drops[:5]}\n"
+                if music_analysis.get("buildups"):
+                    buildups = music_analysis["buildups"]
+                    music_summary += f"- {len(buildups)} buildups: {buildups[:5]}\n"
+                if music_analysis.get("breakdowns"):
+                    breakdowns = music_analysis["breakdowns"]
+                    music_summary += f"- {len(breakdowns)} breakdowns: {breakdowns[:5]}\n"
+                if music_analysis.get("subbass_energy"):
+                    # Nur zeigen, dass es existiert
+                    music_summary += f"- subbass_energy curve available ({len(music_analysis['subbass_energy'])} values)\n"
+                system_prompt += music_summary
 
-    # Call AI provider
-    t0 = time.time()
-    raw_response = ai.call(
-        system_prompt=system_prompt,
-        user_data=user_data,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    elapsed = time.time() - t0
+            trimmed = _trim_analysis_for_prompt(analysis_data)
+            user_data = f"ANALYSIS DATA:\n```json\n{json.dumps(trimmed, indent=2, ensure_ascii=False, default=str)}\n```"
 
-    logger.info(f"  Response received in {elapsed:.1f}s")
+            # Call AI provider
+            t0 = time.time()
+            raw_response = ai.call(
+                system_prompt=system_prompt,
+                user_data=user_data,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            elapsed = time.time() - t0
 
-    # Parse response
-    plan = _parse_edit_plan(raw_response, provider_name=ai.name, model_id=ai.model_id)
-    plan.generation_time_s = elapsed
-    plan.style = preset  # reflect the requested preset (parser defaults to "highlight")
+            logger.info(f"  Response received in {elapsed:.1f}s")
 
-    # Verify and fix
-    plan = verify_edit_plan(plan, analysis_data, target_duration=duration)
+            # Parse response
+            plan = _parse_edit_plan(raw_response, provider_name=ai.name, model_id=ai.model_id)
+            plan.generation_time_s = elapsed
+            plan.style = preset  # reflect the requested preset (parser defaults to "highlight")
 
-    if output_path:
-        plan.save(output_path)
+            # Verify and fix
+            plan = verify_edit_plan(plan, analysis_data, target_duration=duration)
 
-    logger.info(f"Edit plan generated: {len(plan.clips)} clips, {plan.total_duration:.1f}s total "
-                f"[{ai.name}/{ai.model_id}, {elapsed:.1f}s]")
-    return plan
+            if output_path:
+                plan.save(output_path)
+
+            logger.info(f"Edit plan generated: {len(plan.clips)} clips, {plan.total_duration:.1f}s total "
+                        f"[{ai.name}/{ai.model_id}, {elapsed:.1f}s]")
+            return plan
+
+        except Exception as e:
+            logger.warning(f"  {ai.name} failed to generate plan: {e}. Trying next provider if available...")
+            last_error = e
+            continue
+
+    raise ValueError(f"All providers failed. Last error: {last_error}")
 
 
 def generate_multi_plan(
@@ -974,19 +1047,41 @@ def generate_multi_plan(
 # ---------------------------------------------------------------------------
 
 def _source_duration(video_path: str, _cache: dict = {}) -> float:
-    """Source media duration via ffprobe, cached per path. 0.0 if unknown."""
+    """Source media duration via ffprobe, cached per path.
+
+    Tries the path as-is first, then looks in INPUT_DIR (and the relative
+    'input/' folder) by basename. This covers the common case where the AI
+    returns only a filename while the actual file lives in the input folder.
+    Returns 0.0 if the file cannot be found or probed.
+    """
     if video_path in _cache:
         return _cache[video_path]
+
+    from config import INPUT_DIR
     import subprocess
-    try:
-        out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "csv=p=0", video_path],
-            capture_output=True, text=True, timeout=30,
-        )
-        dur = float(out.stdout.strip()) if out.returncode == 0 else 0.0
-    except Exception:
-        dur = 0.0
+
+    # Candidate paths: given path first, then input-dir fallbacks by basename.
+    basename = Path(video_path).name
+    candidates = [video_path]
+    for candidate_dir in [INPUT_DIR, Path("input")]:
+        candidate = candidate_dir / basename
+        if str(candidate) != video_path:
+            candidates.append(str(candidate))
+
+    dur = 0.0
+    for path in candidates:
+        try:
+            out = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", path],
+                capture_output=True, text=True, timeout=30,
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                dur = float(out.stdout.strip())
+                break
+        except Exception:
+            continue
+
     _cache[video_path] = dur
     return dur
 
@@ -1016,6 +1111,9 @@ def verify_edit_plan(
 
         # Clamp against the REAL source duration – the AI only sees analysis
         # data and routinely plans end times past the end of short clips.
+        # If ffprobe returns 0.0 (path unavailable, timeout, etc.) we skip
+        # the source-clamp entirely – never drop a clip purely because ffprobe
+        # couldn't probe it (the path may still be valid at render time).
         src_dur = _source_duration(clip.video)
         if src_dur > 0:
             if clip.start >= src_dur:
@@ -1030,6 +1128,11 @@ def verify_edit_plan(
                     f"[{clip.end:.1f}s → {src_dur:.1f}s]"
                 )
                 clip.end = src_dur
+        else:
+            logger.debug(
+                f"ffprobe returned 0 for {clip.video} – source clamp skipped "
+                f"(file may be valid; will be checked at render time)"
+            )
 
         clip_duration = clip.duration
         if clip_duration > 15.0:

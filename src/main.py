@@ -50,8 +50,8 @@ logger = logging.getLogger("unreel")
 # the 60s default). Music behaviour is auto-tuned per preset:
 #   J-cut (muffled bass → drop) fits the build→explode narratives.
 #   Endcard (logo) fits the branded/promo presets, not the casual community one.
-_RETENTION_PRESETS = {"artist_narrative", "booking", "community"}
-_AUTO_JCUT_PRESETS = {"tarantino", "artist_narrative"}
+_RETENTION_PRESETS = {"artist_narrative", "booking", "community", "seamless_loop", "drop_focus"}
+_AUTO_JCUT_PRESETS = {"tarantino", "artist_narrative", "drop_focus"}
 _AUTO_ENDCARD_PRESETS = {"tarantino", "booking", "artist_narrative"}
 # Invisible sound design (riser → drop + sub-impact) fits the presets with a
 # clear drop payoff. Needs --music to have something to mix over.
@@ -414,19 +414,6 @@ def phase_3_regie(
     if clip_scenes:
         analysis_data = {**analysis_data, "clip_scenes": clip_scenes}
         logger.info(f"  Clip-Scenes: {len(clip_scenes)} clips with descriptions for match-cut analysis")
-
-    # Seamless loop (algorithmic, no AI needed)
-    if preset == "seamless_loop":
-        videos = list(analysis_data.get("sync", {}).get("offsets", {}).keys())
-        if videos:
-            plan = create_seamless_loop_plan(videos[0], 5.0, 5.0 + duration)
-            plan.save(OUTPUT_DIR / "edit_plan.json")
-            result = plan.to_dict()
-            logger.info(f"\n  Seamless Loop Plan: {len(plan.clips)} clips, {plan.total_duration:.1f}s")
-            return {"edit_plan": result}
-        else:
-            logger.error("No videos available for seamless loop")
-            return {"edit_plan": None}
 
     # Multi-provider mode: generate from all available providers
     if multi:
@@ -1166,6 +1153,7 @@ def run_pipeline(
     jcut: bool = False,
     endcard: bool = False,
     sfx: bool = False,
+    reset: str = "",  # "" | "music" | "regie" | "all"
 ):
     """Run the complete UNREEL V3 pipeline."""
     # Ensure directories exist
@@ -1224,6 +1212,29 @@ def run_pipeline(
         except Exception as e:
             logger.warning(f"Could not load prior results ({e}); starting fresh")
 
+    # --reset: gezielt Cache-Einträge löschen, BEVOR die Phasen laufen.
+    if reset == "all":
+        all_results = {}  # Komplett-Reset; Vision-Tags müssen neu berechnet werden
+        edit_plan_path = OUTPUT_DIR / "edit_plan.json"
+        if edit_plan_path.exists():
+            edit_plan_path.unlink()
+        logger.info("🧹 Cache komplett geleert (--reset all)")
+    elif reset == "music":
+        p2 = all_results.get("phase_2")
+        if isinstance(p2, dict) and "music_analysis" in p2:
+            del p2["music_analysis"]
+            logger.info("🧹 music_analysis aus Cache entfernt (--reset music) – Phase 1+2 werden neu analysiert")
+        else:
+            logger.info("ℹ️  music_analysis war nicht im Cache")
+    elif reset == "regie":
+        all_results.pop("phase_3", None)
+        edit_plan_path = OUTPUT_DIR / "edit_plan.json"
+        if edit_plan_path.exists():
+            edit_plan_path.unlink()
+            logger.info("🧹 Regie-Cache + edit_plan.json gelöscht (--reset regie)")
+        else:
+            logger.info("🧹 Regie-Cache gelöscht (--reset regie)")
+
     # Phase 0: Setup (always run)
     if phases is None or "setup" in phases:
         all_results["luts"] = phase_0_setup()
@@ -1231,23 +1242,54 @@ def run_pipeline(
     # Phase 1: Audio Sync + Kick/Snare (preset-independent → reuse cache).
     # Explicitly requesting --phase sync/analyze forces a recompute; a full
     # run reuses cached results if present.
+    #
+    # Fix C (root cause): Neue Audio-Datei erzwingt Neuanalyse.
+    # Zwei Wege:
+    #   (a) --music flag: music is not None und music_analysis fehlt im Cache
+    #   (b) Audio-Datei in input/ (kein --music): audio_files in video_paths
+    #       aber music_analysis fehlt/None im Cache
+    cached_p2 = all_results.get("phase_2") if isinstance(all_results.get("phase_2"), dict) else {}
+    cache_has_music = bool(cached_p2.get("music_analysis"))
+
+    # Audio-Dateien im input-Ordner (werden von Ingest mit gelistet)
+    input_audio_files = [p for p in video_paths if p.suffix.lower() in _AUDIO_EXTENSIONS]
+
+    music_not_analyzed = (
+        # via --music Flag
+        (music is not None and Path(music).exists() and not cache_has_music)
+        or
+        # via Audio-Datei in input/ (kein --music Flag)
+        (not cache_has_music and bool(input_audio_files))
+    )
+    if music_not_analyzed:
+        logger.info(
+            f"Audio file detected but not yet analyzed – forcing Phase 1+2 re-analysis"
+        )
+
     sync_requested = phases is not None and ("sync" in phases or "analyze" in phases)
-    if sync_requested or (phases is None and not all_results.get("phase_1")):
-        all_results["phase_1"] = phase_1_sync(video_paths)
+    if sync_requested or music_not_analyzed or (phases is None and not all_results.get("phase_1")):
+        all_results["phase_1"] = phase_1_sync(video_paths, music_path=music)
         _save_progress()
     elif all_results.get("phase_1"):
         logger.info("✓ Reusing cached audio sync (phase_1)")
 
     # Phase 2: Video Analysis + Vision (resumable, saves after each clip)
-    if phases is None or "vision" in phases or "analyze" in phases:
+    analyze_requested = phases is None or "vision" in phases or "analyze" in phases
+    if analyze_requested or music_not_analyzed:
         prior_p2 = all_results.get("phase_2") if isinstance(all_results.get("phase_2"), dict) else None
 
         def _save_phase2(partial):
             all_results["phase_2"] = partial
             _save_progress()
 
-        # music_path aus dem CLI-Argument übergeben
-        phase2_music = music if music and Path(music).exists() else None
+        # Bevorzuge --music; Fallback: erste Audio-Datei aus input/
+        if music and Path(music).exists():
+            phase2_music = music
+        elif input_audio_files:
+            phase2_music = input_audio_files[0]
+            logger.info(f"  Verwende Audio-Datei aus input/: {phase2_music.name}")
+        else:
+            phase2_music = None
         all_results["phase_2"] = phase_2_analyze(video_paths, existing=prior_p2, save_cb=_save_phase2,
                                                   music_path=phase2_music)
         _save_progress()
@@ -1332,7 +1374,14 @@ def run_pipeline(
 
     # Phase 5: Assembly
     if phases is None or "export" in phases:
-        edit_plan = all_results.get("phase_3", {}).get("edit_plan")
+        # Fix B (root cause): edit_plan IMMER aus der frisch geschriebenen
+        # edit_plan.json lesen – NIEMALS aus dem pipeline_results.json-Cache.
+        # Grund: phase_3 im Cache kann veraltet sein (anderer Preset-Lauf),
+        # während edit_plan.json atomar bei jedem regie-Run neu geschrieben wird.
+        # Wenn regie in dieser Session lief, wurde edit_plan.json bereits
+        # aktualisiert. Falls nicht, lesen wir den zuletzt geschriebenen Plan.
+        # In beiden Fällen ist die Datei aktueller als der Cache.
+        edit_plan = None  # phase_5_assembly liest edit_plan.json selbst
         sync_data = all_results.get("phase_1", {}).get("sync")
         # J-cut/lowpass is the tarantino aesthetic by default; --jcut forces it
         # on for any preset.
@@ -1449,6 +1498,18 @@ Examples:
         help="Run specific phases only (analyze = sync+vision)",
     )
     parser.add_argument(
+        "--reset",
+        choices=["music", "regie", "all"],
+        default="",
+        metavar="{music,regie,all}",
+        help=(
+            "Cache selektiv leeren, dann normal weiterlaufen. "
+            "'music' – music_analysis neu berechnen (neue Audio-Datei). "
+            "'regie' – Regie-Plan + edit_plan.json löschen (neues Preset testen). "
+            "'all' – Kompletter Reset (Vision-Tags müssen neu berechnet werden)."
+        ),
+    )
+    parser.add_argument(
         "--luts",
         action="store_true",
         help="Generate LUT files only and exit",
@@ -1487,6 +1548,7 @@ Examples:
         jcut=args.jcut,
         endcard=args.endcard,
         sfx=args.sfx,
+        reset=args.reset,
     )
 
 
